@@ -13,7 +13,8 @@ from functools import partial
 import numpy as np
 from pydrake.all import AddMultibodyPlantSceneGraph, DiagramBuilder, Parser, ConnectMeshcatVisualizer, RigidTransform, Simulator, PidController
 from pydrake.all import (
-    MultibodyPlant, JointIndex, RotationMatrix, PiecewisePolynomial, JacobianWrtVariable,
+    MultibodyPlant, JointIndex, RollPitchYaw,  
+    PiecewisePolynomial, JacobianWrtVariable, InverseKinematics, RotationMatrix,
     MathematicalProgram, Solve, eq, AutoDiffXd, autoDiffToGradientMatrix, SnoptSolver,
     initializeAutoDiffGivenGradientMatrix, autoDiffToValueMatrix, autoDiffToGradientMatrix,
     AddUnitQuaternionConstraintOnPlant, PositionConstraint, OrientationConstraint
@@ -61,7 +62,7 @@ def gait_optimization(robot_ctor):
     stride_length = robot.get_stride_length()
     speed = robot.get_speed()
     
-    T = 2. #stride_length / speed
+    T = 1.5  #stride_length / speed
     # if is_laterally_symmetric:
     #     T = T / 2.0
 
@@ -69,9 +70,9 @@ def gait_optimization(robot_ctor):
 
     # Time steps    
     h = prog.NewContinuousVariables(N-1, "h")
-    prog.AddBoundingBoxConstraint(0.5*T/N, 2.0*T/N, h) 
-    prog.AddLinearConstraint(sum(h) >= .9*T)
-    prog.AddLinearConstraint(sum(h) <= 1.1*T)
+    prog.AddBoundingBoxConstraint(0.5*T/N, 2.0*T/N, h).evaluator().set_description("dt")
+    prog.AddLinearConstraint(sum(h) >= .9*T).evaluator().set_description("T")
+    prog.AddLinearConstraint(sum(h) <= 1.1*T).evaluator().set_description("T")
 
     # Create one context per timestep (to maximize cache hits)
     context = [plant.CreateDefaultContext() for i in range(N)]
@@ -91,22 +92,92 @@ def gait_optimization(robot_ctor):
     v_cost = robot.get_velocity_cost()
     for n in range(N):
         # Joint limits
-        prog.AddBoundingBoxConstraint(plant.GetPositionLowerLimits(), plant.GetPositionUpperLimits(), q[:,n])
+        prog.AddBoundingBoxConstraint(plant.GetPositionLowerLimits(), plant.GetPositionUpperLimits(), q[:,n]).evaluator().set_description(f"q[:,{n}]")
         # Joint velocity limits
-        prog.AddBoundingBoxConstraint(plant.GetVelocityLowerLimits(), plant.GetVelocityUpperLimits(), v[:,n])
+        prog.AddBoundingBoxConstraint(plant.GetVelocityLowerLimits(), plant.GetVelocityUpperLimits(), v[:,n]).evaluator().set_description(f"v[:,{n}]")
         # Unit quaternions
         AddUnitQuaternionConstraintOnPlant(plant, q[:,n], prog)
         # Body orientation
         prog.AddConstraint(OrientationConstraint(plant, 
                                                  body_frame, RotationMatrix(),
                                                  plant.world_frame(), RotationMatrix(), 
-                                                 robot.max_body_rotation(), context[n]), q[:,n])
+                                                 robot.max_body_rotation(), context[n]), q[:,n]).evaluator().set_description(f"Body ori q[:,{n}]")
         # Initial guess for all joint angles is the home position
-        prog.SetInitialGuess(q[:,n], q0)  # Solvers get stuck if the quaternion is initialized with all zeros.
+        # prog.SetInitialGuess(q[:,n], q0)  # Solvers get stuck if the quaternion is initialized with all zeros.
 
         # Running costs:
         prog.AddQuadraticErrorCost(np.diag(q_cost), q0, q[:,n])
         prog.AddQuadraticErrorCost(np.diag(v_cost), [0]*nv, v[:,n])
+
+
+    lknee = plant.GetJointByName(name="l_leg_kny")
+    rknee = plant.GetJointByName(name="r_leg_kny")
+    lknee.set_angle(plant_context,0.2)
+    rknee.set_angle(plant_context,0.2)
+    q0comh = plant.GetPositions(plant_context)
+
+    epsilon = 1e-2
+    def setpos(ik, name,pos):
+        ik.AddPositionConstraint(
+            frameB=plant.GetFrameByName(name),
+            p_BQ=np.zeros(3),
+            frameA=plant.world_frame(),
+            p_AQ_upper=pos+epsilon,
+            p_AQ_lower=pos-epsilon)
+    def setori(ik, name,rpy):
+      rotation = RotationMatrix(rpy)
+      ik.AddOrientationConstraint(
+              plant.world_frame(), rotation,
+              plant.GetFrameByName(name),rotation,
+              epsilon)
+
+    def get_q(comh):
+        ik = InverseKinematics(plant=plant, with_joint_limits=False)
+        setpos(ik, "pelvis",np.array([0.0, 0.0, comh]))
+        setpos(ik, "r_foot",np.array([0.0, -0.15, 0.1]))
+        setpos(ik, "l_foot",np.array([0.0, 0.15, 0.1]))
+
+        setori(ik, "pelvis",RollPitchYaw(0,0,0))
+        setori(ik, "r_foot",RollPitchYaw(0,0,0))
+        setori(ik, "l_foot",RollPitchYaw(0,0,0))
+
+        result = Solve(ik.prog(), q0comh)
+        q_sol = result.GetSolution()
+        # print(f'comh: {comh} \n q_sol: \n {q_sol} \n\n')
+
+        return q_sol
+
+
+    initcom = np.zeros((3, N))
+    comN = 11
+    comT = 0.5
+    comv0 = 4.9*comT
+    h0 = 0.6
+    a1 = 2*0.4/comT**2
+    comt = [i for i in range(comN)]
+    comt = np.array(comt)
+    comt = 0.5/(comN-1)*comt
+    h1 = h0 + 0.5*a1*comt*comt
+    h2 = [h1[-1]+comv0*comt[i] - 0.5*9.8*comt[i]*comt[i] for i in range(comN)]
+    h3 = [h2[-1]]*comN
+    h1 = np.delete(h1, -1)
+    h2 = np.delete(h2, -1)
+    comh = np.hstack((h1,h2,h3))
+
+    for n in range(N):
+        qcomh = get_q(comh[n])
+        prog.SetInitialGuess(q[:,n], qcomh)  # Solvers get stuck if the quaternion is initialized with all zeros.
+
+
+    qcomh = get_q(comh[0])
+    # print(f'comh: {comh[0]} \n qcomh: \n {qcomh} \n\n')
+    q_selector = robot.get_initpos_view()
+    prog.AddLinearConstraint(eq(q[q_selector,0], qcomh[q_selector])).evaluator().set_description("period")
+
+    # qcomh = get_q(comh[-1])
+    # q_selector = robot.get_initpos_view()
+    # prog.AddLinearConstraint(eq(q[q_selector,-1], qcomh[q_selector])).evaluator().set_description("period")
+
 
     # Make a new autodiff context for this constraint (to maximize cache hits)
     ad_velocity_dynamics_context = [ad_plant.CreateDefaultContext() for i in range(N)]
@@ -125,7 +196,8 @@ def gait_optimization(robot_ctor):
         prog.AddConstraint(
             partial(velocity_dynamics_constraint, context_index=n), 
             lb=[0]*nv, ub=[0]*nv, 
-            vars=np.concatenate(([h[n]], q[:,n], v[:,n], q[:,n+1])))
+            vars=np.concatenate(([h[n]], q[:,n], v[:,n], q[:,n+1]))).evaluator().set_description(f"veldyn h[{n}]")
+
 
     # Contact forces
     num_contacts = robot.get_num_contacts()
@@ -133,58 +205,43 @@ def gait_optimization(robot_ctor):
     for n in range(N-1):
         for contact in range(num_contacts):
             # Linear friction cone
-            prog.AddLinearConstraint(contact_force[contact][0,n] <= mu*contact_force[contact][2,n])
-            prog.AddLinearConstraint(-contact_force[contact][0,n] <= mu*contact_force[contact][2,n])
-            prog.AddLinearConstraint(contact_force[contact][1,n] <= mu*contact_force[contact][2,n])
-            prog.AddLinearConstraint(-contact_force[contact][1,n] <= mu*contact_force[contact][2,n])
+            prog.AddLinearConstraint(contact_force[contact][0,n] <= mu*contact_force[contact][2,n]).evaluator().set_description("Contactforces")
+            prog.AddLinearConstraint(-contact_force[contact][0,n] <= mu*contact_force[contact][2,n]).evaluator().set_description("Contactforces")
+            prog.AddLinearConstraint(contact_force[contact][1,n] <= mu*contact_force[contact][2,n]).evaluator().set_description("Contactforces")
+            prog.AddLinearConstraint(-contact_force[contact][1,n] <= mu*contact_force[contact][2,n]).evaluator().set_description("Contactforces")
             # normal force >=0, normal_force == 0 if not in_stance
             # max normal force assumed to be 4mg
-            prog.AddBoundingBoxConstraint(0, in_stance[contact,n]*4*g*total_mass, contact_force[contact][2,n])            
+            prog.AddBoundingBoxConstraint(0, in_stance[contact,n]*4*g*total_mass, contact_force[contact][2,n]).evaluator().set_description("Contactforces")
 
     # Center of mass variables and constraints
     com = prog.NewContinuousVariables(3, N, "com")
     comdot = prog.NewContinuousVariables(3, N, "comdot")
     comddot = prog.NewContinuousVariables(3, N-1, "comddot")
 
-    initcom = np.zeros((3, N))
-    comN = 11
-    comT = 0.5
-    comv0 = 4.9*comT
-    h0 = 0.7
-    a1 = 2*0.4/comT**2
-    comt = [i for i in range(comN)]
-    comt = np.array(comt)
-    comt = 0.5/(comN-1)*comt
-    h1 = h0 + 0.5*a1*comt*comt
-    h2 = [h1[-1]+comv0*comt[i] - 0.5*9.8*comt[i]*comt[i] for i in range(comN)]
-    h3 = h1[::-1]
-    h1 = np.delete(h1, -1)
-    h2 = np.delete(h2, -1)
-    comh = np.hstack((h1,h2,h3))
+
     initcom[2,:] = comh
     prog.SetInitialGuess(com, initcom)
 
-
     # Initial CoM x,y position == 0
-    prog.AddBoundingBoxConstraint(0, 0, com[:2,0])
+    prog.AddBoundingBoxConstraint(0, 0, com[:2,0]).evaluator().set_description("InitialCoM")
     # Initial CoM z vel == 0
-    prog.AddBoundingBoxConstraint(0, 0, comdot[2,0])
+    prog.AddBoundingBoxConstraint(0, 0, comdot[2,0]).evaluator().set_description("InitialCoM")
     # CoM height
-    prog.AddBoundingBoxConstraint(robot.min_com_height(), np.inf, com[2,:])
+    prog.AddBoundingBoxConstraint(robot.min_com_height(), np.inf, com[2,:]).evaluator().set_description("InitialCoMH")
     # CoM x velocity >= 0
-    prog.AddBoundingBoxConstraint(0, np.inf, comdot[0,:])
+    prog.AddBoundingBoxConstraint(0, np.inf, comdot[0,:]).evaluator().set_description("COMV")
     # CoM final x position
     if is_laterally_symmetric:
-        prog.AddBoundingBoxConstraint(stride_length/2.0, stride_length/2.0, com[0,-1])
+        prog.AddBoundingBoxConstraint(stride_length/2.0, stride_length/2.0, com[0,-1]).evaluator().set_description("is_laterally_symmetric")
     else:
         prog.AddBoundingBoxConstraint(stride_length, stride_length, com[0,-1])
     # CoM dynamics
     for n in range(N-1):
         # Note: The original matlab implementation used backwards Euler (here and throughout),
         # which is a little more consistent with the LCP contact models.
-        prog.AddConstraint(eq(com[:, n+1], com[:,n] + h[n]*comdot[:,n]))
-        prog.AddConstraint(eq(comdot[:, n+1], comdot[:,n] + h[n]*comddot[:,n]))
-        prog.AddConstraint(eq(total_mass*comddot[:,n], sum(contact_force[i][:,n] for i in range(4)) + total_mass*gravity))
+        prog.AddConstraint(eq(com[:, n+1], com[:,n] + h[n]*comdot[:,n])).evaluator().set_description("COMdyn")
+        prog.AddConstraint(eq(comdot[:, n+1], comdot[:,n] + h[n]*comddot[:,n])).evaluator().set_description("COMdyn")
+        prog.AddConstraint(eq(total_mass*comddot[:,n], sum(contact_force[i][:,n] for i in range(4)) + total_mass*gravity)).evaluator().set_description("COMdyn")
 
     # Angular momentum (about the center of mass)
     H = prog.NewContinuousVariables(3, N, "H")
@@ -216,10 +273,12 @@ def gait_optimization(robot_ctor):
                 torque += np.cross(p_WF.reshape(3) - com, contact_force[:,i])
         return Hdot - torque
     for n in range(N-1):
-        prog.AddConstraint(eq(H[:,n+1], H[:,n] + h[n]*Hdot[:,n]))
+        prog.AddConstraint(eq(H[:,n+1], H[:,n] + h[n]*Hdot[:,n])).evaluator().set_description("centroidal")
         Fn = np.concatenate([contact_force[i][:,n] for i in range(4)])
-        prog.AddConstraint(partial(angular_momentum_constraint, context_index=n), lb=np.zeros(3), ub=np.zeros(3), 
-                           vars=np.concatenate((q[:,n], com[:,n], Hdot[:,n], Fn)))
+        lblim = np.array([0,-np.inf,0])
+        ublim = np.array([0,np.inf,0])
+        prog.AddConstraint(partial(angular_momentum_constraint, context_index=n), lb=lblim, ub=ublim, 
+                           vars=np.concatenate((q[:,n], com[:,n], Hdot[:,n], Fn))).evaluator().set_description("centroidal")
 
     # com == CenterOfMass(q), H = SpatialMomentumInWorldAboutPoint(q, v, com)
     # Make a new autodiff context for this constraint (to maximize cache hits)
@@ -239,7 +298,7 @@ def gait_optimization(robot_ctor):
         return np.concatenate((com_q - com, H_qv - H))
     for n in range(N):
         prog.AddConstraint(partial(com_constraint, context_index=n), 
-            lb=np.zeros(6), ub=np.zeros(6), vars=np.concatenate((q[:,n], v[:,n], com[:,n], H[:,n])))
+            lb=np.zeros(6), ub=np.zeros(6), vars=np.concatenate((q[:,n], v[:,n], com[:,n], H[:,n]))).evaluator().set_description("centroidal")
 
     # TODO: Add collision constraints
 
@@ -271,28 +330,29 @@ def gait_optimization(robot_ctor):
                 if n > 0 and in_stance[i, n-1]:
                     # feet should not move during stance.
                     prog.AddConstraint(partial(fixed_position_constraint, context_index=n-1, frame=contact_frame[i]),
-                                       lb=np.zeros(3), ub=np.zeros(3), vars=np.concatenate((q[:,n-1], q[:,n])))
+                                       lb=np.zeros(3), ub=np.zeros(3), vars=np.concatenate((q[:,n-1], q[:,n]))).evaluator().set_description("kine")
             else:
                 min_clearance = 0.01
                 prog.AddConstraint(PositionConstraint(plant, plant.world_frame(), [-np.inf,-np.inf,min_clearance], [np.inf,np.inf,np.inf],contact_frame[i],[0,0,0],context[n]), q[:,n])
 
-    # Periodicity constraints
-    if is_laterally_symmetric:
-        robot.add_periodic_constraints(prog, q_view, v_view)
 
-        # CoM velocity
-        prog.AddLinearEqualityConstraint(comdot[0,0] == comdot[0,-1])
-        prog.AddLinearEqualityConstraint(comdot[1,0] == -comdot[1,-1])
-        prog.AddLinearEqualityConstraint(comdot[2,0] == comdot[2,-1])
-    else:
-        # Everything except body_x is periodic
-        q_selector = robot.get_periodic_view()
-        prog.AddLinearConstraint(eq(q[q_selector,0], q[q_selector,-1]))
-        prog.AddLinearConstraint(eq(v[:,0], v[:,-1]))
+    # # Periodicity constraints
+    # if is_laterally_symmetric:
+    #     robot.add_periodic_constraints(prog, q_view, v_view)
+    #     print('q_view type:', type(q_view))
+    #     # CoM velocity
+    #     prog.AddLinearEqualityConstraint(comdot[0,0] == comdot[0,-1]).evaluator().set_description("period")
+    #     prog.AddLinearEqualityConstraint(comdot[1,0] == -comdot[1,-1]).evaluator().set_description("period")
+    #     prog.AddLinearEqualityConstraint(comdot[2,0] == comdot[2,-1]).evaluator().set_description("period")
+    # else:
+    #     # Everything except body_x is periodic
+    #     q_selector = robot.get_periodic_view()
+    #     prog.AddLinearConstraint(eq(q[q_selector,0], q[q_selector,-1])).evaluator().set_description("period")
+    #     prog.AddLinearConstraint(eq(v[:,0], v[:,-1])).evaluator().set_description("period")
 
     # TODO: Set solver parameters (mostly to make the worst case solve times less bad)
     snopt = SnoptSolver().solver_id()
-    prog.SetSolverOption(snopt, 'Iterations Limits', 50000)
+    prog.SetSolverOption(snopt, 'Iterations Limits', 3e5)
     prog.SetSolverOption(snopt, 'Major Iterations Limit', 200)
     prog.SetSolverOption(snopt, 'Major Feasibility Tolerance', 5e-6)
     prog.SetSolverOption(snopt, 'Major Optimality Tolerance', 1e-4)
@@ -306,9 +366,11 @@ def gait_optimization(robot_ctor):
 
     result = Solve(prog)
     print(f"{result.get_solver_id().name()}: {result.is_success()}")
-    infeasible_constraints = result.GetInfeasibleConstraints(prog)
-    for c in infeasible_constraints:
-      print(f"infeasible constraint: {c}")
+    # infeasible_constraints = result.GetInfeasibleConstraints(prog)
+    # for c in infeasible_constraints:
+    #   print(f"infeasible constraint: {c.evaluator().get_description()}")
+
+    #print(result.is_success())  # We expect this to be false if iterations are limited.
 
     # Animate trajectory
     context = diagram.CreateDefaultContext()
@@ -337,16 +399,7 @@ def gait_optimization(robot_ctor):
     visualizer.stop_recording()
     visualizer.publish_recording()
 
-# Try them all!  The last two could use a little tuning.
-littledog_walking_trot = partial(LittleDog, gait="walking_trot")
-littledog_running_trot = partial(LittleDog, gait="running_trot")
-littledog_rotary_gallop = partial(LittleDog, gait="rotary_gallop")
-littledog_bound = partial(LittleDog, gait="bound")
-
-# gait_optimization(littledog_walking_trot)
-# gait_optimization(littledog_rotary_gallop)
-
 gait_optimization(partial(Atlas, simplified=True))
 
 import time
-time.sleep(1e5)
+time.sleep(1e7)

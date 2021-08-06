@@ -287,11 +287,13 @@ class Atlas(Robot):
         q_cost.pelvis_qz = 0
         q_cost.pelvis_qw = 0
         q_cost.back_bkx = 100
-        q_cost.back_bky = 5
+        q_cost.back_bky = 1
         q_cost.back_bkz = 100
 
         q_cost.r_leg_hpz = 100
         q_cost.l_leg_hpz = 100
+        q_cost.r_leg_hpx = 100
+        q_cost.l_leg_hpx = 100
         # print('q_cost: ',q_cost)
         return q_cost
 
@@ -323,6 +325,17 @@ class Atlas(Robot):
 
     def increment_periodic_view(self, view, increment):
         view.pelvis_x += increment
+
+    def add_mirror_constraints(self, prog, q_view, v_view):
+        def AddMirrorPair(a, b):
+            for i in range(self.get_num_timesteps()):
+                prog.AddLinearEqualityConstraint(a[i] == b[i])
+
+        AddMirrorPair(q_view.l_leg_aky, q_view.r_leg_aky)
+        AddMirrorPair(q_view.l_leg_hpy, q_view.r_leg_hpy)
+        AddMirrorPair(q_view.l_leg_kny, q_view.r_leg_kny)
+
+
 
     def add_periodic_constraints(self, prog, q_view, v_view):
         # Joints
