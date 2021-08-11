@@ -210,40 +210,40 @@ class Atlas(Robot):
         in_stance[ Atlas.L_FOOT_TOE_L_IDX, t:] = 1
         in_stance[ Atlas.L_FOOT_TOE_R_IDX, t:] = 1
 
-        # foot heel takeoff
-        # Heel should come off at the same time due to the pivot at the toe
-        t = 8
-        in_stance[ Atlas.R_FOOT_HEEL_R_IDX, t:] = 0
-        in_stance[ Atlas.R_FOOT_HEEL_L_IDX, t:] = 0
+        # # foot heel takeoff
+        # # Heel should come off at the same time due to the pivot at the toe
+        # t = 8
+        # in_stance[ Atlas.R_FOOT_HEEL_R_IDX, t:] = 0
+        # in_stance[ Atlas.R_FOOT_HEEL_L_IDX, t:] = 0
 
-        in_stance[ Atlas.L_FOOT_HEEL_L_IDX, t:] = 0
-        in_stance[ Atlas.L_FOOT_HEEL_R_IDX, t:] = 0
-
-
-        # foot toe takeoff
-        t = 12
-        in_stance[ Atlas.R_FOOT_TOE_R_IDX, t:] = 0
-        in_stance[ Atlas.L_FOOT_TOE_L_IDX, t:] = 0
-        t = t + CONTACT_DELAY
-        in_stance[ Atlas.R_FOOT_TOE_L_IDX, t:] = 0
-        in_stance[ Atlas.L_FOOT_TOE_R_IDX, t:] = 0
+        # in_stance[ Atlas.L_FOOT_HEEL_L_IDX, t:] = 0
+        # in_stance[ Atlas.L_FOOT_HEEL_R_IDX, t:] = 0
 
 
-        # foot toe strike
-        t = 20
-        in_stance[ Atlas.R_FOOT_TOE_L_IDX, t:] = 1
-        in_stance[ Atlas.L_FOOT_TOE_R_IDX, t:] = 1
-        t = t + CONTACT_DELAY
-        in_stance[ Atlas.R_FOOT_TOE_R_IDX, t:] = 1
-        in_stance[ Atlas.L_FOOT_TOE_L_IDX, t:] = 1
+        # # foot toe takeoff
+        # t = 12
+        # in_stance[ Atlas.R_FOOT_TOE_R_IDX, t:] = 0
+        # in_stance[ Atlas.L_FOOT_TOE_L_IDX, t:] = 0
+        # t = t + CONTACT_DELAY
+        # in_stance[ Atlas.R_FOOT_TOE_L_IDX, t:] = 0
+        # in_stance[ Atlas.L_FOOT_TOE_R_IDX, t:] = 0
 
-        # foot heel strike
-        t = 26
-        in_stance[ Atlas.R_FOOT_HEEL_R_IDX, t:] = 1
-        in_stance[ Atlas.R_FOOT_HEEL_L_IDX, t:] = 1
 
-        in_stance[ Atlas.L_FOOT_HEEL_L_IDX, t:] = 1
-        in_stance[ Atlas.L_FOOT_HEEL_R_IDX, t:] = 1
+        # # foot toe strike
+        # t = 20
+        # in_stance[ Atlas.R_FOOT_TOE_L_IDX, t:] = 1
+        # in_stance[ Atlas.L_FOOT_TOE_R_IDX, t:] = 1
+        # t = t + CONTACT_DELAY
+        # in_stance[ Atlas.R_FOOT_TOE_R_IDX, t:] = 1
+        # in_stance[ Atlas.L_FOOT_TOE_L_IDX, t:] = 1
+
+        # # foot heel strike
+        # t = 26
+        # in_stance[ Atlas.R_FOOT_HEEL_R_IDX, t:] = 1
+        # in_stance[ Atlas.R_FOOT_HEEL_L_IDX, t:] = 1
+
+        # in_stance[ Atlas.L_FOOT_HEEL_L_IDX, t:] = 1
+        # in_stance[ Atlas.L_FOOT_HEEL_R_IDX, t:] = 1
 
         return in_stance
 
@@ -279,19 +279,15 @@ class Atlas(Robot):
 
     def get_position_cost(self):
         q_cost = self.PositionView()([1]*self.nq)
-        q_cost.pelvis_x = 100
-        q_cost.pelvis_y = 100
-        q_cost.pelvis_z = 0
+        q_cost.pelvis_z = 1
         q_cost.pelvis_qx = 0
         q_cost.pelvis_qy = 0
         q_cost.pelvis_qz = 0
         q_cost.pelvis_qw = 0
-        q_cost.back_bkx = 100
+        q_cost.back_bkx = 5
         q_cost.back_bky = 5
-        q_cost.back_bkz = 100
+        q_cost.back_bkz = 5
 
-        q_cost.r_leg_hpz = 100
-        q_cost.l_leg_hpz = 100
         # print('q_cost: ',q_cost)
         return q_cost
 
@@ -301,12 +297,6 @@ class Atlas(Robot):
         v_cost.pelvis_wx = 0
         v_cost.pelvis_wy = 0
         v_cost.pelvis_wz = 0
-
-        v_cost.back_bkx = 100
-        v_cost.back_bkz = 100
-
-        v_cost.r_leg_hpz = 100
-        v_cost.l_leg_hpz = 100
 
         return v_cost
 
