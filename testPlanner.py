@@ -355,6 +355,7 @@ def gait_optimization(robot_ctor):
 
 
     contact_force_sol = [result.GetSolution(contact_force[i]) for i in range(num_contacts)]
+    myq_sol = result.GetSolution(q)
     H_sol = result.GetSolution(H)
     Hdot_sol = result.GetSolution(Hdot)
     com_sol = result.GetSolution(com)
@@ -371,15 +372,35 @@ def gait_optimization(robot_ctor):
     # print('q_sol: \n',result.GetSolution(q)[:,-1])
     # print('q0: \n',q0)
 
-    print('contact_force_sol: \n',contact_force_sol[0][2])
-    print('contact_force_sol: \n',contact_force_sol[1][2])
-    print('contact_force_sol: \n',contact_force_sol[2][2])
-    print('contact_force_sol: \n',contact_force_sol[3][2])
-    print('contact_force_sol: \n',contact_force_sol[4][2])
-    print('contact_force_sol: \n',contact_force_sol[5][2])
-    print('contact_force_sol: \n',contact_force_sol[6][2])
-    print('contact_force_sol: \n',contact_force_sol[7][2])
+    # print('contact_force_sol: \n',contact_force_sol[0][2])
+    # print('contact_force_sol: \n',contact_force_sol[1][2])
+    # print('contact_force_sol: \n',contact_force_sol[2][2])
+    # print('contact_force_sol: \n',contact_force_sol[3][2])
+    # print('contact_force_sol: \n',contact_force_sol[4][2])
+    # print('contact_force_sol: \n',contact_force_sol[5][2])
+    # print('contact_force_sol: \n',contact_force_sol[6][2])
+    # print('contact_force_sol: \n',contact_force_sol[7][2])
 
+    angular_context = [plant.CreateDefaultContext() for i in range(N)]
+    def my_angular_momentum_constraint(vars, context_index):
+        q, com, Hdot, contact_force = np.split(vars, [nq, nq+3, nq+6])
+        contact_force = contact_force.reshape(3, num_contacts, order='F')
+        if not np.array_equal(q, plant.GetPositions(angular_context[context_index])):
+            plant.SetPositions(angular_context[context_index], q)
+        torque = np.zeros(3)
+        for i in range(num_contacts):
+            p_WF = plant.CalcPointsPositions(angular_context[context_index], contact_frame[i], [0,0,0], plant.world_frame())
+            torque += np.cross(p_WF.reshape(3) - com, contact_force[:,i])
+        return Hdot - torque
+
+    for n in range(N-1):
+        Fn = np.concatenate([contact_force_sol[i][:,n] for i in range(num_contacts)])
+        value = my_angular_momentum_constraint(
+            vars=np.concatenate((myq_sol[:,n], com_sol[:,n], Hdot_sol[:,n], Fn)),
+            context_index=n)
+        print(f'angularMom{n}: {value}')
+        # print(f"angularMom {n} is {prog.EvalBinding(angularMom[n], prog.initial_guess())}")
+        # print(f"angularMom {n} is {prog.EvalBinding(angularMom[n], result.GetSolution())}")
 
 
 
