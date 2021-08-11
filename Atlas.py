@@ -248,7 +248,7 @@ class Atlas(Robot):
         return in_stance
 
     def get_num_timesteps(self):
-        return 31
+        return 11
 
     def get_laterally_symmetric(self):
         return False

@@ -43,6 +43,7 @@ def gait_optimization(robot_ctor):
     diagram.Publish(context)
 
     q0 = plant.GetPositions(plant_context)
+    v0 = plant.GetVelocities(plant_context)
     body_frame = plant.GetFrameByName(robot.get_body_name())
 
     PositionView = robot.PositionView()
@@ -72,9 +73,16 @@ def gait_optimization(robot_ctor):
     ######  Time steps Constraint   
     h = prog.NewContinuousVariables(N-1, "h")
     prog.AddBoundingBoxConstraint(0.5*T/N, 2.0*T/N, h).evaluator().set_description("dt")
-    prog.AddLinearConstraint(sum(h) >= .9*T).evaluator().set_description("T")
-    prog.AddLinearConstraint(sum(h) <= 1.1*T).evaluator().set_description("T")
+    hlow = prog.AddLinearConstraint(sum(h) >= .9*T)
+    hup = prog.AddLinearConstraint(sum(h) <= 1.1*T)
+    hlow.evaluator().set_description("T")
+    hup.evaluator().set_description("T")
+    # prog.AddLinearConstraint(sum(h) >= .9*T).evaluator().set_description("T")
+    # prog.AddLinearConstraint(sum(h) <= 1.1*T).evaluator().set_description("T")
+    prog.SetInitialGuess(h, [T/((N-1))]*(N-1))
 
+    # print(f"hlow is {prog.EvalBinding(hlow, prog.initial_guess())}")
+    # print(f"hup is {prog.EvalBinding(hup, prog.initial_guess())}")
 
 
 
@@ -110,6 +118,7 @@ def gait_optimization(robot_ctor):
                                                  robot.max_body_rotation(), context[n]), q[:,n]).evaluator().set_description(f"Body ori q[:,{n}]")
         # Initial guess for all joint angles is the home position
         prog.SetInitialGuess(q[:,n], q0)  # Solvers get stuck if the quaternion is initialized with all zeros.
+        prog.SetInitialGuess(v[:,n], v0)
 
         # Running costs:
         prog.AddQuadraticErrorCost(np.diag(q_cost), q0, q[:,n])
@@ -159,7 +168,9 @@ def gait_optimization(robot_ctor):
             # max normal force assumed to be 4mg
             prog.AddBoundingBoxConstraint(0, in_stance[contact,n]*4*g*total_mass, contact_force[contact][2,n]).evaluator().set_description("maxContactforces")
 
-            prog.SetInitialGuess(contact_force[contact][2,n], g*total_mass/8.0)  # Solvers get stuck if the quaternion is initialized with all zeros.
+            prog.SetInitialGuess(contact_force[contact][0,n], 0.0)
+            prog.SetInitialGuess(contact_force[contact][1,n], 0.0)
+            prog.SetInitialGuess(contact_force[contact][2,n], g*total_mass/8.0)
 
 
 
@@ -169,6 +180,12 @@ def gait_optimization(robot_ctor):
     com = prog.NewContinuousVariables(3, N, "com")
     comdot = prog.NewContinuousVariables(3, N, "comdot")
     comddot = prog.NewContinuousVariables(3, N-1, "comddot")
+
+    initcom = plant.CalcCenterOfMassPositionInWorld(plant_context)
+    for n in range(N):
+      prog.SetInitialGuess(com[:,n], initcom)
+    prog.SetInitialGuess(comdot, np.zeros((3, N)))
+    prog.SetInitialGuess(comddot, np.zeros((3, N-1)))
 
     # Initial CoM x,y position == 0
     prog.AddBoundingBoxConstraint(0, 0, com[:2,0]).evaluator().set_description("InitialCoM")
@@ -249,11 +266,50 @@ def gait_optimization(robot_ctor):
         Fn = np.concatenate([contact_force[i][:,n] for i in range(num_contacts)])
         prog.AddConstraint(partial(angular_momentum_constraint, context_index=n), lb=-epsilon*np.ones(3), ub=epsilon*np.ones(3), 
                            vars=np.concatenate((q[:,n], com[:,n], Hdot[:,n], Fn))).evaluator().set_description("Contactforces")
-    #     # prog.AddConstraint(partial(angular_momentum_constraint, context_index=n), lb=np.zeros(3), ub=np.zeros(3), 
-    #     #                    vars=np.concatenate((q[:,n], com[:,n], Hdot[:,n], Fn))).evaluator().set_description("Contactforces")
+        # prog.AddConstraint(partial(angular_momentum_constraint, context_index=n), lb=np.zeros(3), ub=np.zeros(3), 
+        #                    vars=np.concatenate((q[:,n], com[:,n], Hdot[:,n], Fn))).evaluator().set_description("Contactforces")
 
 
 
+
+
+
+
+
+
+
+    ###### Kinematic constraints
+    def fixed_position_constraint(vars, context_index, frame):
+        q, qn = np.split(vars, [nq])
+        if not np.array_equal(q, plant.GetPositions(context[context_index])):
+            plant.SetPositions(context[context_index], q)
+        if not np.array_equal(qn, plant.GetPositions(context[context_index+1])):
+            plant.SetPositions(context[context_index+1], qn)
+        p_WF = plant.CalcPointsPositions(context[context_index], frame, [0,0,0], plant.world_frame())
+        p_WF_n = plant.CalcPointsPositions(context[context_index+1], frame, [0,0,0], plant.world_frame())
+        if isinstance(vars[0], AutoDiffXd):
+            J_WF = plant.CalcJacobianTranslationalVelocity(context[context_index], JacobianWrtVariable.kQDot,
+                                                    frame, [0, 0, 0], plant.world_frame(), plant.world_frame())
+            J_WF_n = plant.CalcJacobianTranslationalVelocity(context[context_index+1], JacobianWrtVariable.kQDot,
+                                                    frame, [0, 0, 0], plant.world_frame(), plant.world_frame())
+            return initializeAutoDiffGivenGradientMatrix(
+                p_WF_n - p_WF, J_WF_n @ autoDiffToGradientMatrix(qn) - J_WF @ autoDiffToGradientMatrix(q))
+        else:
+            return p_WF_n - p_WF
+    for i in range(robot.get_num_contacts()):
+        for n in range(N):
+            if in_stance[i, n]:
+                # foot should be on the ground (world position z=0)
+                prog.AddConstraint(PositionConstraint(
+                    plant, plant.world_frame(), [-np.inf,-np.inf,0], [np.inf,np.inf,0], 
+                    contact_frame[i], [0,0,0], context[n]), q[:,n]).evaluator().set_description("stance")
+                if n > 0 and in_stance[i, n-1]:
+                    # feet should not move during stance.
+                    prog.AddConstraint(partial(fixed_position_constraint, context_index=n-1, frame=contact_frame[i]),
+                                       lb=-epsilon*np.ones(3), ub=epsilon*np.ones(3), vars=np.concatenate((q[:,n-1], q[:,n]))).evaluator().set_description("stance")
+            else:
+                min_clearance = 0.01
+                prog.AddConstraint(PositionConstraint(plant, plant.world_frame(), [-np.inf,-np.inf,min_clearance], [np.inf,np.inf,np.inf],contact_frame[i],[0,0,0],context[n]), q[:,n])
 
 
 
@@ -293,6 +349,11 @@ def gait_optimization(robot_ctor):
     plant_context = plant.GetMyContextFromRoot(context)
     t_sol = np.cumsum(np.concatenate(([0],result.GetSolution(h))))
     q_sol = PiecewisePolynomial.FirstOrderHold(t_sol, result.GetSolution(q))
+
+
+
+
+
     contact_force_sol = [result.GetSolution(contact_force[i]) for i in range(num_contacts)]
     H_sol = result.GetSolution(H)
     Hdot_sol = result.GetSolution(Hdot)
@@ -309,6 +370,7 @@ def gait_optimization(robot_ctor):
     # print('q_sol: \n',q_sol)
     # print('q_sol: \n',result.GetSolution(q)[:,-1])
     # print('q0: \n',q0)
+
     print('contact_force_sol: \n',contact_force_sol[0][2])
     print('contact_force_sol: \n',contact_force_sol[1][2])
     print('contact_force_sol: \n',contact_force_sol[2][2])
@@ -317,6 +379,9 @@ def gait_optimization(robot_ctor):
     print('contact_force_sol: \n',contact_force_sol[5][2])
     print('contact_force_sol: \n',contact_force_sol[6][2])
     print('contact_force_sol: \n',contact_force_sol[7][2])
+
+
+
 
 
 
