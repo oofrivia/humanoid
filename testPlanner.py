@@ -61,7 +61,7 @@ def gait_optimization(robot_ctor):
     is_laterally_symmetric = robot.get_laterally_symmetric()
     stride_length = robot.get_stride_length()
     
-    T = 1.5  #total time
+    T = 0.5  #total time
     prog = MathematicalProgram()        
 
     epsilon = 1e-2
@@ -223,12 +223,12 @@ def gait_optimization(robot_ctor):
             if not autoDiffArrayEqual(qv, ad_plant.GetPositionsAndVelocities(com_constraint_context[context_index])):
                 ad_plant.SetPositionsAndVelocities(com_constraint_context[context_index], qv)
             com_q = ad_plant.CalcCenterOfMassPositionInWorld(com_constraint_context[context_index])
-            H_qv = ad_plant.CalcSpatialMomentumInWorldAboutPoint(com_constraint_context[context_index], com).rotational()
+            H_qv = ad_plant.CalcSpatialMomentumInWorldAboutPoint(com_constraint_context[context_index], com_q).rotational()
         else:
             if not np.array_equal(qv, plant.GetPositionsAndVelocities(context[context_index])):
                 plant.SetPositionsAndVelocities(context[context_index], qv)
             com_q = plant.CalcCenterOfMassPositionInWorld(context[context_index])
-            H_qv = plant.CalcSpatialMomentumInWorldAboutPoint(context[context_index], com).rotational()
+            H_qv = plant.CalcSpatialMomentumInWorldAboutPoint(context[context_index], com_q).rotational()
         return np.concatenate((com_q - com, H_qv - H))
     for n in range(N):
         prog.AddConstraint(partial(com_constraint, context_index=n), 
@@ -238,8 +238,18 @@ def gait_optimization(robot_ctor):
     for n in range(N-1):
         prog.AddConstraint(eq(H[:,n+1], H[:,n] + h[n]*Hdot[:,n])).evaluator().set_description("H/HDot")
 
+
+
+
+
     # Hdot = sum_i cross(p_FootiW-com, contact_force_i)
+    # AMlambda = prog.NewContinuousVariables(3, N, "AMlambda")
+    # prog.SetInitialGuess(AMlambda, np.zeros((3, N)))
+    # for n in range(N):
+    #     prog.AddQuadraticErrorCost(np.diag([1e2,1e2,1e2]), [0]*3, AMlambda[:,n])
+
     def angular_momentum_constraint(vars, context_index):
+        # AMlambda, q, com, Hdot, contact_force = np.split(vars, [3, nq+3, nq+6, nq+9])
         q, com, Hdot, contact_force = np.split(vars, [nq, nq+3, nq+6])
         contact_force = contact_force.reshape(3, num_contacts, order='F')
         if isinstance(vars[0], AutoDiffXd):
@@ -253,21 +263,26 @@ def gait_optimization(robot_ctor):
                     context[context_index], JacobianWrtVariable.kQDot,
                     contact_frame[i], [0, 0, 0], plant.world_frame(), plant.world_frame())
                 ad_p_WF = initializeAutoDiffGivenGradientMatrix(p_WF, np.hstack((Jq_WF, np.zeros((3, 18)))))
-                torque = torque     + np.cross(ad_p_WF.reshape(3) - com, contact_force[:,i])
+                com_q = plant.CalcCenterOfMassPositionInWorld(context[context_index])
+                torque = torque     + np.cross(ad_p_WF.reshape(3) - com_q, contact_force[:,i])
         else:
             if not np.array_equal(q, plant.GetPositions(context[context_index])):
                 plant.SetPositions(context[context_index], q)
             torque = np.zeros(3)
             for i in range(num_contacts):
                 p_WF = plant.CalcPointsPositions(context[context_index], contact_frame[i], [0,0,0], plant.world_frame())
-                torque += np.cross(p_WF.reshape(3) - com, contact_force[:,i])
+                com_q = plant.CalcCenterOfMassPositionInWorld(context[context_index])
+                torque += np.cross(p_WF.reshape(3) - com_q, contact_force[:,i])
+        # return np.linalg.norm(Hdot - torque)*1e2
         return Hdot - torque
     for n in range(N-1):
         Fn = np.concatenate([contact_force[i][:,n] for i in range(num_contacts)])
-        prog.AddConstraint(partial(angular_momentum_constraint, context_index=n), lb=-epsilon*np.ones(3), ub=epsilon*np.ones(3), 
-                           vars=np.concatenate((q[:,n], com[:,n], Hdot[:,n], Fn))).evaluator().set_description("Contactforces")
+        # prog.AddCost(partial(angular_momentum_constraint, context_index=n),
+        #                    vars=np.concatenate((q[:,n], com[:,n], Hdot[:,n], Fn))).evaluator().set_description(f"angular_momentum {n} cost")
+        prog.AddConstraint(partial(angular_momentum_constraint, context_index=n), lb=-0.1*epsilon*np.ones(3), ub=0.1*epsilon*np.ones(3),
+                           vars=np.concatenate((q[:,n], com[:,n], Hdot[:,n], Fn))).evaluator().set_description(f"angular_momentum {n}")
         # prog.AddConstraint(partial(angular_momentum_constraint, context_index=n), lb=np.zeros(3), ub=np.zeros(3), 
-        #                    vars=np.concatenate((q[:,n], com[:,n], Hdot[:,n], Fn))).evaluator().set_description("Contactforces")
+        #                    vars=np.concatenate((q[:,n], com[:,n], Hdot[:,n], Fn))).evaluator().set_description(f"angular_momentum {n}")
 
 
 
@@ -324,7 +339,7 @@ def gait_optimization(robot_ctor):
     snopt = SnoptSolver().solver_id()
     prog.SetSolverOption(snopt, 'Iterations Limits', 1e6)
     prog.SetSolverOption(snopt, 'Major Iterations Limit', 1000)
-    prog.SetSolverOption(snopt, 'Major Feasibility Tolerance', 1e-3)
+    prog.SetSolverOption(snopt, 'Major Feasibility Tolerance', 1e-2)
     prog.SetSolverOption(snopt, 'Major Optimality Tolerance', 1e-3)
     prog.SetSolverOption(snopt, 'Superbasics limit', 2000)
     prog.SetSolverOption(snopt, 'Linesearch tolerance', 0.9)
@@ -361,6 +376,7 @@ def gait_optimization(robot_ctor):
     com_sol = result.GetSolution(com)
     comdot_sol = result.GetSolution(comdot)
     comddot_sol = result.GetSolution(comddot)
+    # AMlambda_sol = result.GetSolution(AMlambda)
 
     # print('H_sol: \n',H_sol)
     # print('Hdot_sol: \n',Hdot_sol)
@@ -371,6 +387,7 @@ def gait_optimization(robot_ctor):
     # print('q_sol: \n',q_sol)
     # print('q_sol: \n',result.GetSolution(q)[:,-1])
     # print('q0: \n',q0)
+    # print('AMlambda_sol: \n',AMlambda_sol)
 
     # print('contact_force_sol: \n',contact_force_sol[0][2])
     # print('contact_force_sol: \n',contact_force_sol[1][2])
