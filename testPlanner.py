@@ -61,7 +61,7 @@ def gait_optimization(robot_ctor):
     is_laterally_symmetric = robot.get_laterally_symmetric()
     stride_length = robot.get_stride_length()
     
-    T = 0.5  #total time
+    T = 0.1  #total time
     prog = MathematicalProgram()        
 
     epsilon = 1e-2
@@ -123,6 +123,14 @@ def gait_optimization(robot_ctor):
         # Running costs:
         prog.AddQuadraticErrorCost(np.diag(q_cost), q0, q[:,n])
         prog.AddQuadraticErrorCost(np.diag(v_cost), [0]*nv, v[:,n])
+
+    # test q cost
+    print('q_view', q0_view.pelvis_x)
+    print('q_view', q0_view.pelvis_y)
+    print('q_view', q0_view.pelvis_z)
+    for i in range(N):
+        prog.AddQuadraticErrorCost(np.diag([1e3]*7), 
+            [1.0,0,0,0, 0,0,0.8], q[0:7,n])
 
 
 
@@ -193,8 +201,8 @@ def gait_optimization(robot_ctor):
     prog.AddBoundingBoxConstraint(0, 0, comdot[2,0]).evaluator().set_description("InitialCoM")
     # CoM height
     prog.AddBoundingBoxConstraint(robot.min_com_height(), np.inf, com[2,:]).evaluator().set_description("InitialCoMH")
-    # CoM x velocity >= 0
-    prog.AddBoundingBoxConstraint(0, np.inf, comdot[0,:]).evaluator().set_description("COMV")
+    # # CoM x velocity >= 0
+    # prog.AddBoundingBoxConstraint(0, np.inf, comdot[0,:]).evaluator().set_description("COMV")
 
     # prog.AddBoundingBoxConstraint(0.1, np.inf, comddot[2,:]).evaluator().set_description("COMa")
 
@@ -251,13 +259,13 @@ def gait_optimization(robot_ctor):
     def angular_momentum_constraint(vars, context_index):
         # AMlambda, q, com, Hdot, contact_force = np.split(vars, [3, nq+3, nq+6, nq+9])
         q, com, Hdot, contact_force = np.split(vars, [nq, nq+3, nq+6])
-        contact_force = contact_force.reshape(3, num_contacts, order='F')
+        contact_force = contact_force.reshape(3, 4, order='F')
         if isinstance(vars[0], AutoDiffXd):
             q = autoDiffToValueMatrix(q)
             if not np.array_equal(q, plant.GetPositions(context[context_index])):
                 plant.SetPositions(context[context_index], q)
             torque = np.zeros(3)
-            for i in range(num_contacts):
+            for i in range(4):
                 p_WF = plant.CalcPointsPositions(context[context_index], contact_frame[i], [0,0,0], plant.world_frame())
                 Jq_WF = plant.CalcJacobianTranslationalVelocity(
                     context[context_index], JacobianWrtVariable.kQDot,
@@ -269,20 +277,21 @@ def gait_optimization(robot_ctor):
             if not np.array_equal(q, plant.GetPositions(context[context_index])):
                 plant.SetPositions(context[context_index], q)
             torque = np.zeros(3)
-            for i in range(num_contacts):
+            for i in range(4):
                 p_WF = plant.CalcPointsPositions(context[context_index], contact_frame[i], [0,0,0], plant.world_frame())
                 com_q = plant.CalcCenterOfMassPositionInWorld(context[context_index])
                 torque += np.cross(p_WF.reshape(3) - com_q, contact_force[:,i])
         # return np.linalg.norm(Hdot - torque)*1e2
         return Hdot - torque
     for n in range(N-1):
-        Fn = np.concatenate([contact_force[i][:,n] for i in range(num_contacts)])
+        Fn = np.concatenate([contact_force[i][:,n] for i in range(4)])
         # prog.AddCost(partial(angular_momentum_constraint, context_index=n),
         #                    vars=np.concatenate((q[:,n], com[:,n], Hdot[:,n], Fn))).evaluator().set_description(f"angular_momentum {n} cost")
-        prog.AddConstraint(partial(angular_momentum_constraint, context_index=n), lb=-0.1*epsilon*np.ones(3), ub=0.1*epsilon*np.ones(3),
-                           vars=np.concatenate((q[:,n], com[:,n], Hdot[:,n], Fn))).evaluator().set_description(f"angular_momentum {n}")
-        # prog.AddConstraint(partial(angular_momentum_constraint, context_index=n), lb=np.zeros(3), ub=np.zeros(3), 
+
+        # prog.AddConstraint(partial(angular_momentum_constraint, context_index=n), lb=-0.1*epsilon*np.ones(3), ub=0.1*epsilon*np.ones(3),
         #                    vars=np.concatenate((q[:,n], com[:,n], Hdot[:,n], Fn))).evaluator().set_description(f"angular_momentum {n}")
+        prog.AddConstraint(partial(angular_momentum_constraint, context_index=n), lb=np.zeros(3), ub=np.zeros(3), 
+                           vars=np.concatenate((q[:,n], com[:,n], Hdot[:,n], Fn))).evaluator().set_description(f"angular_momentum {n}")
 
 
 
@@ -320,6 +329,8 @@ def gait_optimization(robot_ctor):
                     contact_frame[i], [0,0,0], context[n]), q[:,n]).evaluator().set_description("stance")
                 if n > 0 and in_stance[i, n-1]:
                     # feet should not move during stance.
+                    # prog.AddConstraint(partial(fixed_position_constraint, context_index=n-1, frame=contact_frame[i]),
+                    #                    lb=-epsilon*np.ones(3), ub=epsilon*np.ones(3), vars=np.concatenate((q[:,n-1], q[:,n]))).evaluator().set_description("stance")
                     prog.AddConstraint(partial(fixed_position_constraint, context_index=n-1, frame=contact_frame[i]),
                                        lb=-epsilon*np.ones(3), ub=epsilon*np.ones(3), vars=np.concatenate((q[:,n-1], q[:,n]))).evaluator().set_description("stance")
             else:
@@ -339,8 +350,8 @@ def gait_optimization(robot_ctor):
     snopt = SnoptSolver().solver_id()
     prog.SetSolverOption(snopt, 'Iterations Limits', 1e6)
     prog.SetSolverOption(snopt, 'Major Iterations Limit', 1000)
-    prog.SetSolverOption(snopt, 'Major Feasibility Tolerance', 1e-2)
-    prog.SetSolverOption(snopt, 'Major Optimality Tolerance', 1e-3)
+    prog.SetSolverOption(snopt, 'Major Feasibility Tolerance', 1e-5)
+    prog.SetSolverOption(snopt, 'Major Optimality Tolerance', 1e-4)
     prog.SetSolverOption(snopt, 'Superbasics limit', 2000)
     prog.SetSolverOption(snopt, 'Linesearch tolerance', 0.9)
     # prog.SetSolverOption(snopt, 'Scale option', 2)
@@ -370,6 +381,7 @@ def gait_optimization(robot_ctor):
 
 
     contact_force_sol = [result.GetSolution(contact_force[i]) for i in range(num_contacts)]
+    myv_sol = result.GetSolution(v)
     myq_sol = result.GetSolution(q)
     H_sol = result.GetSolution(H)
     Hdot_sol = result.GetSolution(Hdot)
@@ -408,6 +420,7 @@ def gait_optimization(robot_ctor):
         for i in range(num_contacts):
             p_WF = plant.CalcPointsPositions(angular_context[context_index], contact_frame[i], [0,0,0], plant.world_frame())
             torque += np.cross(p_WF.reshape(3) - com, contact_force[:,i])
+        # print(f'torque {context_index}: {torque}')
         return Hdot - torque
 
     for n in range(N-1):
@@ -415,14 +428,21 @@ def gait_optimization(robot_ctor):
         value = my_angular_momentum_constraint(
             vars=np.concatenate((myq_sol[:,n], com_sol[:,n], Hdot_sol[:,n], Fn)),
             context_index=n)
-        print(f'angularMom{n}: {value}')
+        print(f'angularMom {n}: {value}')
         # print(f"angularMom {n} is {prog.EvalBinding(angularMom[n], prog.initial_guess())}")
         # print(f"angularMom {n} is {prog.EvalBinding(angularMom[n], result.GetSolution())}")
 
+    # for n in range(N-1):
+    #     print(f'myq_sol {n}: {myq_sol[0:7,n]}')
+    # for n in range(N-1):
+    #     print(f'H_sol {n}: {H_sol[:,n]}')
+    # for n in range(N-1):
+    #     print(f'Hdot_sol {n}: {Hdot_sol[:,n]}')
+        
 
 
 
-
+    print(f"{result.get_solver_id().name()}: {result.is_success()}")
     visualizer.start_recording()
     num_strides = 1
     t0 = t_sol[0]

@@ -200,10 +200,10 @@ class Atlas(Robot):
         CONTACT_DELAY = 2
         # standing
         t = 0
-        in_stance[ Atlas.R_FOOT_HEEL_L_IDX, t:] = 1
-        in_stance[ Atlas.R_FOOT_HEEL_R_IDX, t:] = 1
-        in_stance[ Atlas.R_FOOT_TOE_L_IDX, t:] = 1
-        in_stance[ Atlas.R_FOOT_TOE_R_IDX, t:] = 1
+        in_stance[ Atlas.R_FOOT_HEEL_L_IDX, t:] = 0
+        in_stance[ Atlas.R_FOOT_HEEL_R_IDX, t:] = 0
+        in_stance[ Atlas.R_FOOT_TOE_L_IDX, t:] = 0
+        in_stance[ Atlas.R_FOOT_TOE_R_IDX, t:] = 0
 
         in_stance[ Atlas.L_FOOT_HEEL_L_IDX, t:] = 1
         in_stance[ Atlas.L_FOOT_HEEL_R_IDX, t:] = 1
@@ -248,7 +248,7 @@ class Atlas(Robot):
         return in_stance
 
     def get_num_timesteps(self):
-        return 11
+        return 5
 
     def get_laterally_symmetric(self):
         return False
@@ -279,24 +279,24 @@ class Atlas(Robot):
 
     def get_position_cost(self):
         q_cost = self.PositionView()([1]*self.nq)
-        q_cost.pelvis_z = 1
-        q_cost.pelvis_qx = 0
-        q_cost.pelvis_qy = 0
-        q_cost.pelvis_qz = 0
-        q_cost.pelvis_qw = 0
-        q_cost.back_bkx = 5
-        q_cost.back_bky = 5
-        q_cost.back_bkz = 5
+        # q_cost.pelvis_z = 1
+        # q_cost.pelvis_qx = 0
+        # q_cost.pelvis_qy = 0
+        # q_cost.pelvis_qz = 0
+        # q_cost.pelvis_qw = 0
+        # q_cost.back_bkx = 5
+        # q_cost.back_bky = 5
+        # q_cost.back_bkz = 5
 
         # print('q_cost: ',q_cost)
         return q_cost
 
     def get_velocity_cost(self):
         v_cost = self.VelocityView()([1]*self.nv)
-        v_cost.pelvis_vx = 0
-        v_cost.pelvis_wx = 0
-        v_cost.pelvis_wy = 0
-        v_cost.pelvis_wz = 0
+        # v_cost.pelvis_vx = 0
+        # v_cost.pelvis_wx = 0
+        # v_cost.pelvis_wy = 0
+        # v_cost.pelvis_wz = 0
 
         return v_cost
 
