@@ -15,8 +15,10 @@ from pydrake.all import AddMultibodyPlantSceneGraph, DiagramBuilder, Parser, Con
 
 def set_home(plant, context):
     hip_roll = .1;
-    hip_pitch = 1;
-    knee = 1.55;
+    # hip_pitch = 1;
+    # knee = 1.55;
+    hip_pitch = 1.5;
+    knee = 2;
     plant.GetJointByName("front_right_hip_roll").set_angle(context, -hip_roll)
     plant.GetJointByName("front_right_hip_pitch").set_angle(context, hip_pitch)
     plant.GetJointByName("front_right_knee").set_angle(context, -knee)
@@ -163,8 +165,8 @@ def gait_optimization(gait = 'walking_trot'):
         in_stance = np.zeros((4, N))
         in_stance[0, :7] = 1
         in_stance[1, :7] = 1
-        in_stance[2, :9] = 1
-        in_stance[3, :9] = 1
+        in_stance[2, :7] = 1
+        in_stance[3, :7] = 1
 
         in_stance[0, 16:] = 1
         in_stance[1, 16:] = 1
@@ -291,6 +293,20 @@ def gait_optimization(gait = 'walking_trot'):
         prog.AddConstraint(eq(com[:, n+1], com[:,n] + h[n]*comdot[:,n]))
         prog.AddConstraint(eq(comdot[:, n+1], comdot[:,n] + h[n]*comddot[:,n]))
         prog.AddConstraint(eq(total_mass*comddot[:,n], sum(contact_force[i][:,n] for i in range(4)) + total_mass*gravity))
+
+
+
+    # for n in range(9,16,1):
+    #     prog.AddQuadraticErrorCost(np.diag([1e2,1e2,1e2]),[0]*3,comddot[:,n])
+
+    def jerk(vars):
+        comddot,comddotN = np.split(vars, [3])
+        jerk = comddotN - comddot
+        return (jerk[0]*jerk[0] + jerk[1]*jerk[1] + jerk[2]*jerk[2])*1e4
+
+    for n in range(N-2):
+        # prog.AddQuadraticErrorCost(np.diag([1e2,1e2,1e2]), comddot[:,n], comddot[:,n+1])
+        prog.AddCost(jerk, vars=np.concatenate((comddot[:,n],comddot[:,n+1])))
 
     for n in range(9,16,1):
         prog.AddLinearCost(-1e3*com[2,n])
@@ -467,6 +483,7 @@ def gait_optimization(gait = 'walking_trot'):
     contact_force_sol = [result.GetSolution(contact_force[i]) for i in range(4)]
     myv_sol = result.GetSolution(v)
     myq_sol = result.GetSolution(q)
+    h_sol = result.GetSolution(h)
     H_sol = result.GetSolution(H)
     Hdot_sol = result.GetSolution(Hdot)
     com_sol = result.GetSolution(com)
@@ -474,10 +491,17 @@ def gait_optimization(gait = 'walking_trot'):
     comddot_sol = result.GetSolution(comddot)
 
 
+    np.set_printoptions(precision=3)
+    np.set_printoptions(suppress=True)
+
     i = 0
+    print('h_sol x: \n',h_sol)
     print('contact_force_sol x: \n',contact_force_sol[i][0,:])
     print('contact_force_sol y: \n',contact_force_sol[i][1,:])
     print('contact_force_sol z: \n',contact_force_sol[i][2,:])
+    print('com_sol z: \n',com_sol[2])
+    print('comdot_sol z: \n',comdot_sol[2])
+    print('comddot_sol z: \n',comddot_sol[2])
 
 
 
@@ -534,7 +558,7 @@ def gait_optimization(gait = 'walking_trot'):
     t0 = t_sol[0]
     tf = t_sol[-1]
     T = tf*num_strides*(2.0 if is_laterally_symmetric else 1.0)
-    for t in np.hstack((np.arange(t0, T, visualizer.draw_period), T)):
+    for t in (np.arange(t0, T, visualizer.draw_period)):
         context.SetTime(t)
         stride = (t - t0) // (tf - t0)
         ts = (t - t0) % (tf - t0)
