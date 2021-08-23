@@ -111,7 +111,7 @@ def gait_optimization(gait = 'walking_trot'):
     mu = 1 # rubber on rubber
     total_mass = sum(plant.get_body(index).get_mass(context) for index in plant.GetBodyIndices(littledog))
     gravity = plant.gravity_field().gravity_vector()
-    
+
     nq = 12
     foot_frame = [
         plant.GetFrameByName('front_left_foot_center'),
@@ -158,15 +158,26 @@ def gait_optimization(gait = 'walking_trot'):
         in_stance[2, 21:32] = 1
         in_stance[3, 21:32] = 1
         speed = 1.2
-        stride_length = .55
+    elif gait == 'jump':
+        N = 21
+        in_stance = np.zeros((4, N))
+        in_stance[0, :7] = 1
+        in_stance[1, :7] = 1
+        in_stance[2, :9] = 1
+        in_stance[3, :9] = 1
+
+        in_stance[0, 16:] = 1
+        in_stance[1, 16:] = 1
+        in_stance[2, 16:] = 1
+        in_stance[3, 16:] = 1
+
+        stride_length = .01
         check_self_collision = True
     else:
         raise RuntimeError('Unknown gait.')
 
-    
-    T = stride_length / speed
-    if is_laterally_symmetric:
-        T = T / 2.0
+
+    T = 1.
 
     prog = MathematicalProgram()        
 
@@ -280,6 +291,19 @@ def gait_optimization(gait = 'walking_trot'):
         prog.AddConstraint(eq(com[:, n+1], com[:,n] + h[n]*comdot[:,n]))
         prog.AddConstraint(eq(comdot[:, n+1], comdot[:,n] + h[n]*comddot[:,n]))
         prog.AddConstraint(eq(total_mass*comddot[:,n], sum(contact_force[i][:,n] for i in range(4)) + total_mass*gravity))
+
+    for n in range(9,16,1):
+        prog.AddLinearCost(-1e3*com[2,n])
+
+    for i in range(4):
+      for n in range(N-1):
+          prog.AddQuadraticErrorCost(np.diag([1e2,1e2,1e2]), [0]*3, contact_force[i][:,n])
+
+
+
+
+
+
 
     # Angular momentum (about the center of mass)
     H = prog.NewContinuousVariables(3, N, "H")
@@ -416,13 +440,15 @@ def gait_optimization(gait = 'walking_trot'):
 
     # TODO: Set solver parameters (mostly to make the worst case solve times less bad)
     snopt = SnoptSolver().solver_id()
-    prog.SetSolverOption(snopt, 'Iterations Limits', 1e5 )
-    prog.SetSolverOption(snopt, 'Major Iterations Limit', 200 )
+    prog.SetSolverOption(snopt, 'Iterations Limits', 1e6 )
+    prog.SetSolverOption(snopt, 'Major Iterations Limit', 1000 )
     prog.SetSolverOption(snopt, 'Major Feasibility Tolerance', 5e-6)
     prog.SetSolverOption(snopt, 'Major Optimality Tolerance', 1e-4)
     prog.SetSolverOption(snopt, 'Superbasics limit', 2000)
     prog.SetSolverOption(snopt, 'Linesearch tolerance', 0.9)
     prog.SetSolverOption(snopt, 'Print file', 'snopt.out')
+    f=open('snopt.out','w')
+    f.truncate()
 
     # TODO a few more costs/constraints from 
     # from https://github.com/RobotLocomotion/LittleDog/blob/master/gaitOptimization.m 
@@ -433,7 +459,42 @@ def gait_optimization(gait = 'walking_trot'):
 
     infeasible_constraints = result.GetInfeasibleConstraints(prog)
     for c in infeasible_constraints:
-      print(f"infeasible constraint: {c.evaluator().get_description()}")
+      # print(f"infeasible constraint: {c.evaluator().get_description()}")
+      print(f"infeasible constraint: {c}")
+
+
+
+    contact_force_sol = [result.GetSolution(contact_force[i]) for i in range(4)]
+    myv_sol = result.GetSolution(v)
+    myq_sol = result.GetSolution(q)
+    H_sol = result.GetSolution(H)
+    Hdot_sol = result.GetSolution(Hdot)
+    com_sol = result.GetSolution(com)
+    comdot_sol = result.GetSolution(comdot)
+    comddot_sol = result.GetSolution(comddot)
+
+
+    i = 0
+    print('contact_force_sol x: \n',contact_force_sol[i][0,:])
+    print('contact_force_sol y: \n',contact_force_sol[i][1,:])
+    print('contact_force_sol z: \n',contact_force_sol[i][2,:])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -469,7 +530,7 @@ def gait_optimization(gait = 'walking_trot'):
     t_sol = np.cumsum(np.concatenate(([0],result.GetSolution(h))))
     q_sol = PiecewisePolynomial.FirstOrderHold(t_sol, result.GetSolution(q))
     visualizer.start_recording()
-    num_strides = 4
+    num_strides = 1
     t0 = t_sol[0]
     tf = t_sol[-1]
     T = tf*num_strides*(2.0 if is_laterally_symmetric else 1.0)
@@ -491,7 +552,9 @@ def gait_optimization(gait = 'walking_trot'):
     visualizer.publish_recording()
     
 # Try them all!  The last two could use a little tuning.
-gait_optimization('walking_trot')
+
+gait_optimization('jump')
+# gait_optimization('walking_trot')
 # gait_optimization('running_trot')
 # gait_optimization('rotary_gallop')  
 # gait_optimization('bound')
