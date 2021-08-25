@@ -161,17 +161,17 @@ def gait_optimization(gait = 'walking_trot'):
         in_stance[3, 21:32] = 1
         speed = 1.2
     elif gait == 'jump':
-        N = 21
+        N = 25
         in_stance = np.zeros((4, N))
         in_stance[0, :7] = 1
         in_stance[1, :7] = 1
         in_stance[2, :7] = 1
         in_stance[3, :7] = 1
 
-        in_stance[0, 16:] = 1
-        in_stance[1, 16:] = 1
-        in_stance[2, 16:] = 1
-        in_stance[3, 16:] = 1
+        in_stance[0, 20:] = 1
+        in_stance[1, 20:] = 1
+        in_stance[2, 20:] = 1
+        in_stance[3, 20:] = 1
 
         stride_length = .01
         check_self_collision = True
@@ -179,13 +179,13 @@ def gait_optimization(gait = 'walking_trot'):
         raise RuntimeError('Unknown gait.')
 
 
-    T = 1.
+    T = 1.2
 
     prog = MathematicalProgram()        
 
     # Time steps    
     h = prog.NewContinuousVariables(N-1, "h")
-    prog.AddBoundingBoxConstraint(0.5*T/N, 2.0*T/N, h) 
+    prog.AddBoundingBoxConstraint(0.5*T/N, 2.0*T/N, h)
     prog.AddLinearConstraint(sum(h) >= .9*T)
     prog.AddLinearConstraint(sum(h) <= 1.1*T)
 
@@ -278,7 +278,7 @@ def gait_optimization(gait = 'walking_trot'):
     # Initial CoM z vel == 0
     prog.AddBoundingBoxConstraint(0, 0, comdot[2,0])
     # CoM height
-    prog.AddBoundingBoxConstraint(.125, np.inf, com[2,:])
+    prog.AddBoundingBoxConstraint(.1, np.inf, com[2,:])
     # CoM x velocity >= 0
     prog.AddBoundingBoxConstraint(0, np.inf, comdot[0,:])
     # CoM final x position
@@ -304,9 +304,21 @@ def gait_optimization(gait = 'walking_trot'):
         jerk = comddotN - comddot
         return (jerk[0]*jerk[0] + jerk[1]*jerk[1] + jerk[2]*jerk[2])*1e4
 
+    def nvjerk(vars):
+        jointv, jointvn, jointvn1 = np.split(vars, [nv,2*nv])
+        acc = jointvn - jointv
+        acc1 = jointvn1 - jointvn
+        jerk = acc1-acc
+        norm = 0
+        for i in range(nv-6):
+          norm += jerk[i+6]*jerk[i+6]*1e3
+        return norm
+
     for n in range(N-2):
-        # prog.AddQuadraticErrorCost(np.diag([1e2,1e2,1e2]), comddot[:,n], comddot[:,n+1])
         prog.AddCost(jerk, vars=np.concatenate((comddot[:,n],comddot[:,n+1])))
+
+    for n in range(N-3):
+        prog.AddCost(nvjerk, vars=np.concatenate((v[:,n],v[:,n+1],v[:,n+2])))
 
     for n in range(9,16,1):
         prog.AddLinearCost(-1e3*com[2,n])
@@ -411,48 +423,20 @@ def gait_optimization(gait = 'walking_trot'):
                 min_clearance = 0.01
                 prog.AddConstraint(PositionConstraint(plant, plant.world_frame(), [-np.inf,-np.inf,min_clearance], [np.inf,np.inf,np.inf],foot_frame[i],[0,0,0],context[n]), q[:,n])
 
-    # Periodicity constraints
-    if is_laterally_symmetric:
-        # Joints
-        def AddAntiSymmetricPair(a, b):
-            prog.AddLinearEqualityConstraint(a[0] == -b[-1])
-            prog.AddLinearEqualityConstraint(a[-1] == -b[0])
-        def AddSymmetricPair(a, b):
-            prog.AddLinearEqualityConstraint(a[0] == b[-1])
-            prog.AddLinearEqualityConstraint(a[-1] == b[0])
 
-        AddAntiSymmetricPair(q_view.front_left_hip_roll,        
-                             q_view.front_right_hip_roll)
-        AddSymmetricPair(q_view.front_left_hip_pitch,
-                         q_view.front_right_hip_pitch)
-        AddSymmetricPair(q_view.front_left_knee, q_view.front_right_knee)
-        AddAntiSymmetricPair(q_view.back_left_hip_roll, 
-                             q_view.back_right_hip_roll)
-        AddSymmetricPair(q_view.back_left_hip_pitch, 
-                         q_view.back_right_hip_pitch)
-        AddSymmetricPair(q_view.back_left_knee, q_view.back_right_knee)               
-        prog.AddLinearEqualityConstraint(q_view.body_y[0] == -q_view.body_y[-1])
-        prog.AddLinearEqualityConstraint(q_view.body_z[0] == q_view.body_z[-1])
-        # Body orientation must be in the xz plane:
-        prog.AddBoundingBoxConstraint(0, 0, q_view.body_qx[[0,-1]])
-        prog.AddBoundingBoxConstraint(0, 0, q_view.body_qz[[0,-1]])
+    # Body orientation must be in the xz plane:
+    prog.AddBoundingBoxConstraint(0, 0, q_view.body_y[[0,-1]])
+    prog.AddBoundingBoxConstraint(0, 0, q_view.body_qx[[0,-1]])
+    prog.AddBoundingBoxConstraint(0, 0, q_view.body_qz[[0,-1]])
 
-        # Floating base velocity
-        prog.AddLinearEqualityConstraint(v_view.body_vx[0] == v_view.body_vx[-1])
-        prog.AddLinearEqualityConstraint(v_view.body_vy[0] == -v_view.body_vy[-1])
-        prog.AddLinearEqualityConstraint(v_view.body_vz[0] == v_view.body_vz[-1])
+    # Everything except body_x is periodic
+    q_selector = PositionView([True]*nq)
+    q_selector.body_x = False
+    prog.AddLinearConstraint(eq(q[q_selector,0], q[q_selector,-1]))
+    prog.AddLinearConstraint(eq(v[:,0], v[:,-1]))
+    qt = [ 1., 0., 0., 0., np.inf, 0., 0.146, 0.1, -0.1, 0.1, -0.1, 1.5, 1.5, -1.5, -1.5, -2., -2., 2., 2.]
+    # prog.AddBoundingBoxConstraint(q0, qt, q[:,-1])
 
-        # CoM velocity
-        prog.AddLinearEqualityConstraint(comdot[0,0] == comdot[0,-1])
-        prog.AddLinearEqualityConstraint(comdot[1,0] == -comdot[1,-1])
-        prog.AddLinearEqualityConstraint(comdot[2,0] == comdot[2,-1])
-
-    else:
-        # Everything except body_x is periodic
-        q_selector = PositionView([True]*nq)
-        q_selector.body_x = False
-        prog.AddLinearConstraint(eq(q[q_selector,0], q[q_selector,-1]))
-        prog.AddLinearConstraint(eq(v[:,0], v[:,-1]))
 
     # TODO: Set solver parameters (mostly to make the worst case solve times less bad)
     snopt = SnoptSolver().solver_id()
@@ -462,6 +446,7 @@ def gait_optimization(gait = 'walking_trot'):
     prog.SetSolverOption(snopt, 'Major Optimality Tolerance', 1e-4)
     prog.SetSolverOption(snopt, 'Superbasics limit', 2000)
     prog.SetSolverOption(snopt, 'Linesearch tolerance', 0.9)
+    # prog.SetSolverOption(snopt, 'Scale option', 2)
     prog.SetSolverOption(snopt, 'Print file', 'snopt.out')
     f=open('snopt.out','w')
     f.truncate()
@@ -470,13 +455,12 @@ def gait_optimization(gait = 'walking_trot'):
     # from https://github.com/RobotLocomotion/LittleDog/blob/master/gaitOptimization.m 
 
     result = Solve(prog)
-    print(result.get_solver_id().name())
-    print(result.is_success())  # We expect this to be false if iterations are limited.
 
     infeasible_constraints = result.GetInfeasibleConstraints(prog)
     for c in infeasible_constraints:
       # print(f"infeasible constraint: {c.evaluator().get_description()}")
       print(f"infeasible constraint: {c}")
+    print(result.get_solver_id().name(),': ', result.is_success())
 
 
 
