@@ -20,7 +20,7 @@ def set_home(plant, context):
     plant.GetJointByName("joint_hip").set_angle(context, hip)
     plant.GetJointByName("joint_knee").set_angle(context, knee)
     plant.GetJointByName("joint_ankle").set_angle(context, ankle)
-    plant.SetFreeBodyPose(context, plant.GetBodyByName("pelvis"), RigidTransform([0, 0, 0.13]))
+    plant.SetFreeBodyPose(context, plant.GetBodyByName("body"), RigidTransform([0, 0, 0.13]))
 
 
 from pydrake.all import (
@@ -113,7 +113,7 @@ def gait_optimization(gait = 'walking_trot'):
     total_mass = sum(plant.get_body(index).get_mass(context) for index in plant.GetBodyIndices(littledog))
     gravity = plant.gravity_field().gravity_vector()
 
-    body_frame = plant.GetFrameByName("pelvis")
+    body_frame = plant.GetFrameByName("body")
     foot_frame = [
         plant.GetFrameByName('frame_toe'),
         plant.GetFrameByName('frame_heel')]
@@ -367,7 +367,7 @@ def gait_optimization(gait = 'walking_trot'):
         rotation = RotationMatrix(RollPitchYaw(0 , 0 , 0))
         ik.AddOrientationConstraint(
                 plant.world_frame(), rotationIden,
-                plant.GetFrameByName("pelvis"),rotation,
+                plant.GetFrameByName("body"),rotation,
                 epsilon)
         ik.AddOrientationConstraint(
                 plant.world_frame(), rotationIden,

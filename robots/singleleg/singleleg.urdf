@@ -5,7 +5,7 @@
 <robot
   name="singleleg">
   <link
-    name="pelvis">
+    name="body">
     <inertial>
       <origin
         xyz="-8.921E-19 -1.9853E-18 9.8175E-10"
@@ -26,7 +26,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="meshes/pelvis.obj" />
+          filename="meshes/body.obj" />
       </geometry>
       <material
         name="">
@@ -40,7 +40,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="meshes/pelvis.obj" />
+          filename="meshes/body.obj" />
       </geometry>
     </collision>
   </link>
@@ -91,7 +91,7 @@
       xyz="0 0 -0.03"
       rpy="0 0 0" />
     <parent
-      link="pelvis" />
+      link="body" />
     <child
       link="up_leg" />
     <axis
