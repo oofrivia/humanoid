@@ -17,8 +17,8 @@ def set_home(plant, context):
     hip = 0.2;
     knee = -0.4;
     ankle = -0.2;
-    plant.GetJointByName("joint_up_leg").set_angle(context, hip)
-    plant.GetJointByName("joint_low_leg").set_angle(context, knee)
+    plant.GetJointByName("joint_hip").set_angle(context, hip)
+    plant.GetJointByName("joint_knee").set_angle(context, knee)
     plant.GetJointByName("joint_ankle").set_angle(context, ankle)
     plant.SetFreeBodyPose(context, plant.GetBodyByName("pelvis"), RigidTransform([0, 0, 0.13]))
 
@@ -141,7 +141,6 @@ def gait_optimization(gait = 'walking_trot'):
 
 
 
-
     prog = MathematicalProgram()        
 
     # Time steps    
@@ -166,6 +165,8 @@ def gait_optimization(gait = 'walking_trot'):
     q_view = PositionView(q)
     v_view = VelocityView(v)
     q0_view = PositionView(q0)
+    # print(com_q0)
+    # print(q0_view)
 
 
 
