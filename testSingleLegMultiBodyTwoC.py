@@ -118,14 +118,14 @@ def gait_optimization(gait = 'walking_trot'):
     # jump
     T = 1.5 # total time
     N = 25
-    LiftKont = 25
+    LiftKont = 7
     TouchKont = 16
     in_stance = np.zeros((2, N))
     in_stance[0, :LiftKont] = 1
     in_stance[1, :LiftKont] = 1
 
-    # in_stance[0, TouchKont:] = 1
-    # in_stance[1, TouchKont:] = 1
+    in_stance[0, TouchKont:] = 1
+    in_stance[1, TouchKont:] = 1
 
 
 
@@ -134,7 +134,8 @@ def gait_optimization(gait = 'walking_trot'):
 
     # Time steps    
     h = prog.NewContinuousVariables(N-1, "h")
-    prog.AddBoundingBoxConstraint(0.1*T/N, 2.0*T/N, h)
+    prog.AddBoundingBoxConstraint(0.01, 2.0*T/N, h)
+    prog.AddLinearConstraint(sum(h[LiftKont:TouchKont]) >= 0.4)
     prog.AddLinearConstraint(sum(h) >= .9*T)
     prog.AddLinearConstraint(sum(h) <= 1.1*T)
 
@@ -231,11 +232,20 @@ def gait_optimization(gait = 'walking_trot'):
     comdot = prog.NewContinuousVariables(3, N, "comdot")
     comddot = prog.NewContinuousVariables(3, N-1, "comddot")
     # Initial CoM x,y position == 0
-    prog.AddBoundingBoxConstraint(0, 0, com[:2,0])
+    prog.AddBoundingBoxConstraint(0, 0, com[:2,:])
     # Initial CoM z vel == 0
     prog.AddBoundingBoxConstraint(0, 0, comdot[2,0])
-    # CoM height
-    prog.AddBoundingBoxConstraint(0.11, 0.11, com[2,:])
+    # Final CoMddot z == 0
+    prog.AddBoundingBoxConstraint(0, 0, comddot[2,-1])
+
+    # CoM height for # Kinematic constraints
+    for n in range(LiftKont+2):
+      prog.AddBoundingBoxConstraint(.04 , 0.11, com[2,n])
+    for n in range(LiftKont+2, TouchKont, 1):
+      prog.AddBoundingBoxConstraint(.04 , np.inf, com[2,n])
+    for n in range(TouchKont, N, 1):
+      prog.AddBoundingBoxConstraint(.05 , 0.11, com[2,n])
+
 
     # CoM dynamics
     for n in range(N-1):
@@ -247,34 +257,33 @@ def gait_optimization(gait = 'walking_trot'):
 
 
 
-    # def jerk(vars):
-    #     comddot,comddotN = np.split(vars, [3])
-    #     jerk = comddotN - comddot
-    #     return (jerk[0]*jerk[0] + jerk[1]*jerk[1] + jerk[2]*jerk[2])*1e4
-
-    # def nvjerk(vars):
-    #     jointv, jointvn, jointvn1 = np.split(vars, [nv,2*nv])
-    #     acc = jointvn - jointv
-    #     acc1 = jointvn1 - jointvn
-    #     jerk = acc1-acc
-    #     norm = 0
-    #     for i in range(nv-6):
-    #       norm += jerk[i+6]*jerk[i+6]*1e3
-    #     return norm
-
-    # for n in range(N-2):
-    #     prog.AddCost(jerk, vars=np.concatenate((comddot[:,n],comddot[:,n+1])))
-
-    # for n in range(N-3):
-    #     prog.AddCost(nvjerk, vars=np.concatenate((v[:,n],v[:,n+1],v[:,n+2])))
-
-    # for n in range(9,16,1):
-    #     prog.AddLinearCost(-1e3*com[2,n])
-
     for i in range(num_contacts):
       for n in range(N-1):
           prog.AddQuadraticErrorCost(np.diag([1e2,1e2,1e2]), [0]*3, contact_force[i][:,n])
 
+    def jerk(vars):
+        comddot,comddotN = np.split(vars, [3])
+        jerk = comddotN - comddot
+        return (jerk[0]*jerk[0] + jerk[1]*jerk[1] + jerk[2]*jerk[2])*1e3
+
+    for n in range(N-2):
+        prog.AddCost(jerk, vars=np.concatenate((comddot[:,n],comddot[:,n+1])))
+
+    def nvjerk(vars):
+        jointv, jointvn, jointvn1 = np.split(vars, [nv,2*nv])
+        acc = jointvn - jointv
+        acc1 = jointvn1 - jointvn
+        jerk = acc1-acc
+        norm = 0
+        for i in range(nv-6):
+          norm += jerk[i+6]*jerk[i+6]*1e3
+        return norm
+
+    for n in range(N-3):
+        prog.AddCost(nvjerk, vars=np.concatenate((v[:,n],v[:,n+1],v[:,n+2])))
+
+    # for n in range(9,16,1):
+    #     prog.AddLinearCost(-1e3*com[2,n])
 
 
 
@@ -290,21 +299,13 @@ def gait_optimization(gait = 'walking_trot'):
     # Hdot = sum_i cross(p_FootiW-com, contact_force_i)
     for n in range(N-1):
         prog.AddConstraint(eq(H[:,n+1], H[:,n] + h[n]*Hdot[:,n]))
+    # prog.AddBoundingBoxConstraint(0, 0, H[:2,:])
+
 
     def angular_momentum_constraint(vars, context_index):
         q, com, Hdot, contact_force = np.split(vars, [nq, nq+3, nq+6])
         contact_force = contact_force.reshape(3, num_contacts, order='F')
         if isinstance(vars[0], AutoDiffXd):
-            # print(f'q: \n{q}')
-            # print(f'com: \n{com}')
-            # print(f'Hdot: \n{Hdot}')
-            # print(f'contact_force: \n{contact_force[:,0]}')
-
-            # print(f'q: \n{autoDiffToGradientMatrix(q)}')
-            # print(f'com: \n{autoDiffToGradientMatrix(com)}')
-            # print(f'Hdot: \n{autoDiffToGradientMatrix(Hdot)}')
-            # print(f'contact_force: \n{autoDiffToGradientMatrix(contact_force[:,0])}')
-
             q = autoDiffToValueMatrix(q)
             if not np.array_equal(q, plant.GetPositions(context[context_index])):
                 plant.SetPositions(context[context_index], q)
@@ -460,7 +461,11 @@ def gait_optimization(gait = 'walking_trot'):
     np.set_printoptions(precision=3)
     np.set_printoptions(suppress=True)
 
-    print('h_sol x: \n',h_sol)
+    print('h_sol lift: \n',sum(h_sol[0:LiftKont]))
+    print('h_sol fly: \n',sum(h_sol[LiftKont:TouchKont]))
+    print('h_sol touch: \n',sum(h_sol[TouchKont:-1]))
+    print('h_sol : \n',h_sol)
+
     print('contact_force_sol x: \n',contact_force_sol[0][0,:])
     print('contact_force_sol y: \n',contact_force_sol[0][1,:])
     print('contact_force_sol z: \n',contact_force_sol[0][2,:])
@@ -468,6 +473,9 @@ def gait_optimization(gait = 'walking_trot'):
     print('com_sol z: \n',com_sol[2])
     print('comdot_sol z: \n',comdot_sol[2])
     print('comddot_sol z: \n',comddot_sol[2])
+    print('H_sol z: \n',H_sol[0])
+    print('H_sol z: \n',H_sol[1])
+    print('H_sol z: \n',H_sol[2])
 
 
 

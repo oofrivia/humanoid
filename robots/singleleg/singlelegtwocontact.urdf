@@ -8,7 +8,7 @@
     name="body">
     <inertial>
       <origin
-        xyz="-8.921E-19 -1.9853E-18 9.8175E-10"
+        xyz="-8.921E-19 -1.956E-18 9.8175E-10"
         rpy="0 0 0" />
       <mass
         value="7.9" />
@@ -164,16 +164,16 @@
     name="heel">
     <inertial>
       <origin
-        xyz="-0.01 -3.1648E-19 0.0025"
+        xyz="0.0053226 8.8969E-18 -1.5613E-17"
         rpy="0 0 0" />
       <mass
         value="0.1" />
       <inertia
         ixx="2.5625E-06"
-        ixy="-5.1391E-22"
-        ixz="1.0703E-21"
+        ixy="-1.8007E-22"
+        ixz="1.027E-21"
         iyy="1E-05"
-        iyz="6.3101E-38"
+        iyz="2.9722E-38"
         izz="1.0563E-05" />
     </inertial>
     <visual>
@@ -204,7 +204,7 @@
     name="joint_ankle"
     type="revolute">
     <origin
-      xyz="0 0 -0.0525"
+      xyz="-0.00532262680792502 0 -0.05"
       rpy="0 0 0" />
     <parent
       link="low_leg" />
@@ -219,8 +219,7 @@
       velocity="1" />
   </joint>
 
-  <frame link="heel" name="frame_toe" xyz="0.05 0 0"/>
-  <frame link="heel" name="frame_heel" xyz="-0.05 0 0"/>
-
+  <frame link="heel" name="frame_toe" xyz="0.03 0 0"/>
+  <frame link="heel" name="frame_heel" xyz="-0.03 0 0"/>
 
 </robot>

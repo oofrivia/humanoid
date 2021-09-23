@@ -8,10 +8,10 @@
     name="body">
     <inertial>
       <origin
-        xyz="-8.921E-19 -1.9853E-18 9.8175E-10"
+        xyz="-8.921E-19 -1.956E-18 9.8175E-10"
         rpy="0 0 0" />
       <mass
-        value="7.9" />
+        value="4" />
       <inertia
         ixx="0.00012"
         ixy="-9.7442E-21"
@@ -26,7 +26,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="meshes/body.obj" />
+          filename="meshes/body.STL" />
       </geometry>
       <material
         name="">
@@ -40,7 +40,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="meshes/body.obj" />
+          filename="meshes/body.STL" />
       </geometry>
     </collision>
   </link>
@@ -51,7 +51,7 @@
         xyz="7.8462E-19 -2.1082E-17 -0.025"
         rpy="0 0 0" />
       <mass
-        value="1" />
+        value="2" />
       <inertia
         ixx="4E-06"
         ixy="5.4734E-23"
@@ -66,7 +66,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="meshes/up_leg.obj" />
+          filename="meshes/up_leg.STL" />
       </geometry>
       <material
         name="">
@@ -80,12 +80,12 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="meshes/up_leg.obj" />
+          filename="meshes/up_leg.STL" />
       </geometry>
     </collision>
   </link>
   <joint
-    name="joint_hip"
+    name="joint_up_leg"
     type="revolute">
     <origin
       xyz="0 0 -0.03"
@@ -109,7 +109,7 @@
         xyz="6.3874E-18 2.1466E-17 -0.025"
         rpy="0 0 0" />
       <mass
-        value="1" />
+        value="2" />
       <inertia
         ixx="4E-06"
         ixy="-7.389E-23"
@@ -124,7 +124,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="meshes/low_leg.obj" />
+          filename="meshes/low_leg.STL" />
       </geometry>
       <material
         name="">
@@ -138,12 +138,12 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="meshes/low_leg.obj" />
+          filename="meshes/low_leg.STL" />
       </geometry>
     </collision>
   </link>
   <joint
-    name="joint_knee"
+    name="joint_low_leg"
     type="revolute">
     <origin
       xyz="0 0 -0.05"
@@ -164,16 +164,16 @@
     name="heel">
     <inertial>
       <origin
-        xyz="-0.01 -3.1648E-19 0.0025"
+        xyz="0.0053226 8.8969E-18 -1.5613E-17"
         rpy="0 0 0" />
       <mass
-        value="0.1" />
+        value="2" />
       <inertia
         ixx="2.5625E-06"
-        ixy="-5.1391E-22"
-        ixz="1.0703E-21"
+        ixy="-1.8007E-22"
+        ixz="1.027E-21"
         iyy="1E-05"
-        iyz="6.3101E-38"
+        iyz="2.9722E-38"
         izz="1.0563E-05" />
     </inertial>
     <visual>
@@ -182,7 +182,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="meshes/heel.obj" />
+          filename="meshes/heel.STL" />
       </geometry>
       <material
         name="">
@@ -196,15 +196,15 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="meshes/heel.obj" />
+          filename="meshes/heel.STL" />
       </geometry>
     </collision>
   </link>
   <joint
-    name="joint_ankle"
+    name="joint_hell"
     type="revolute">
     <origin
-      xyz="0 0 -0.0525"
+      xyz="-0.00532262680792502 0 -0.05"
       rpy="0 0 0" />
     <parent
       link="low_leg" />
@@ -218,11 +218,4 @@
       effort="100"
       velocity="1" />
   </joint>
-
-  <frame link="heel" name="frame_toe_l" xyz="0.05 0.03 0"/>
-  <frame link="heel" name="frame_toe_r" xyz="0.05 -0.03 0"/>
-  <frame link="heel" name="frame_heel_l" xyz="-0.05 0.03 0"/>
-  <frame link="heel" name="frame_heel_r" xyz="-0.05 -0.03 0"/>
-
-
 </robot>
