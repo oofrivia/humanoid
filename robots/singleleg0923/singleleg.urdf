@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-1-g15f4949  Build Version: 1.6.7594.29634
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="singleleg">
+  <link
+    name="body">
+    <inertial>
+      <origin
+        xyz="-8.921E-19 -1.956E-18 9.8175E-10"
+        rpy="0 0 0" />
+      <mass
+        value="4" />
+      <inertia
+        ixx="0.00012"
+        ixy="-9.7442E-21"
+        ixz="1.4359E-21"
+        iyy="8.76E-05"
+        iyz="5.3091E-21"
+        izz="5.4E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/body.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/body.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="up_leg">
+    <inertial>
+      <origin
+        xyz="7.8462E-19 -2.1082E-17 -0.025"
+        rpy="0 0 0" />
+      <mass
+        value="2" />
+      <inertia
+        ixx="4E-06"
+        ixy="5.4734E-23"
+        ixz="-3.5546E-23"
+        iyy="3.7E-06"
+        iyz="-2.6487E-22"
+        izz="5E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/up_leg.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/up_leg.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_up_leg"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.03"
+      rpy="0 0 0" />
+    <parent
+      link="body" />
+    <child
+      link="up_leg" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="100"
+      velocity="1" />
+  </joint>
+  <link
+    name="low_leg">
+    <inertial>
+      <origin
+        xyz="6.3874E-18 2.1466E-17 -0.025"
+        rpy="0 0 0" />
+      <mass
+        value="2" />
+      <inertia
+        ixx="4E-06"
+        ixy="-7.389E-23"
+        ixz="3.8195E-22"
+        iyy="3.7E-06"
+        iyz="3.4604E-22"
+        izz="5E-07" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/low_leg.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/low_leg.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_low_leg"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.05"
+      rpy="0 0 0" />
+    <parent
+      link="up_leg" />
+    <child
+      link="low_leg" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="100"
+      velocity="1" />
+  </joint>
+  <link
+    name="heel">
+    <inertial>
+      <origin
+        xyz="0.0053226 8.8969E-18 -1.5613E-17"
+        rpy="0 0 0" />
+      <mass
+        value="2" />
+      <inertia
+        ixx="2.5625E-06"
+        ixy="-1.8007E-22"
+        ixz="1.027E-21"
+        iyy="1E-05"
+        iyz="2.9722E-38"
+        izz="1.0563E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/heel.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/heel.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_hell"
+    type="revolute">
+    <origin
+      xyz="-0.00532262680792502 0 -0.05"
+      rpy="0 0 0" />
+    <parent
+      link="low_leg" />
+    <child
+      link="heel" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="100"
+      velocity="1" />
+  </joint>
+</robot>
