@@ -219,10 +219,8 @@
       velocity="1" />
   </joint>
 
-  <frame link="heel" name="frame_toe_l" xyz="0.05 0.03 0"/>
-  <frame link="heel" name="frame_toe_r" xyz="0.05 -0.03 0"/>
-  <frame link="heel" name="frame_heel_l" xyz="-0.05 0.03 0"/>
-  <frame link="heel" name="frame_heel_r" xyz="-0.05 -0.03 0"/>
+  <frame link="heel" name="frame_toe" xyz="0.05 0 0"/>
+  <frame link="heel" name="frame_heel" xyz="-0.05 0 0"/>
 
 
 </robot>
