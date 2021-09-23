@@ -215,6 +215,7 @@ def gait_optimization(gait = 'walking_trot'):
     ##################################################################################################################
     # Contact forces
     contact_force = [prog.NewContinuousVariables(3, N-1, f"foot{foot}_contact_force") for foot in range(num_contacts)]
+    forceScale = 9.81*total_mass
     for n in range(N-1):
         for foot in range(num_contacts):
             # Linear friction cone
@@ -223,7 +224,7 @@ def gait_optimization(gait = 'walking_trot'):
             prog.AddLinearConstraint(contact_force[foot][1,n] <= mu*contact_force[foot][2,n])
             prog.AddLinearConstraint(-contact_force[foot][1,n] <= mu*contact_force[foot][2,n])
             # normal force >=0, normal_force == 0 if not in_stance
-            prog.AddBoundingBoxConstraint(0, in_stance[foot,n]*10*9.81*total_mass, contact_force[foot][2,n])            
+            prog.AddBoundingBoxConstraint(0, in_stance[foot,n]*10, contact_force[foot][2,n]) 
 
     # Center of mass variables and constraints
     com = prog.NewContinuousVariables(3, N, "com")
@@ -234,7 +235,7 @@ def gait_optimization(gait = 'walking_trot'):
     # Initial CoM z vel == 0
     prog.AddBoundingBoxConstraint(0, 0, comdot[2,0])
     # CoM height
-    prog.AddBoundingBoxConstraint(0.04, np.inf, com[2,:])
+    prog.AddBoundingBoxConstraint(0.11, 0.11, com[2,:])
 
     # CoM dynamics
     for n in range(N-1):
@@ -242,7 +243,7 @@ def gait_optimization(gait = 'walking_trot'):
         # which is a little more consistent with the LCP contact models.
         prog.AddConstraint(eq(com[:, n+1], com[:,n] + h[n]*comdot[:,n]))
         prog.AddConstraint(eq(comdot[:, n+1], comdot[:,n] + h[n]*comddot[:,n]))
-        prog.AddConstraint(eq(total_mass*comddot[:,n], sum(contact_force[i][:,n] for i in range(num_contacts)) + total_mass*gravity))
+        prog.AddConstraint(eq(total_mass*comddot[:,n], sum(forceScale*contact_force[i][:,n] for i in range(num_contacts)) + total_mass*gravity))
 
 
 
@@ -314,14 +315,14 @@ def gait_optimization(gait = 'walking_trot'):
                     context[context_index], JacobianWrtVariable.kQDot,
                     foot_frame[i], [0, 0, 0], plant.world_frame(), plant.world_frame())
                 ad_p_WF = initializeAutoDiffGivenGradientMatrix(p_WF, np.hstack((Jq_WF, np.zeros((3, 12)))))
-                torque = torque     + np.cross(ad_p_WF.reshape(3) - com, contact_force[:,i])
+                torque = torque     + np.cross(ad_p_WF.reshape(3) - com, forceScale*contact_force[:,i])
         else:
             if not np.array_equal(q, plant.GetPositions(context[context_index])):
                 plant.SetPositions(context[context_index], q)
             torque = np.zeros(3)
             for i in range(num_contacts):
                 p_WF = plant.CalcPointsPositions(context[context_index], foot_frame[i], [0,0,0], plant.world_frame())
-                torque += np.cross(p_WF.reshape(3) - com, contact_force[:,i])
+                torque += np.cross(p_WF.reshape(3) - com, forceScale*contact_force[:,i])
         return Hdot - torque
     for n in range(N-1):
         Fn = np.concatenate([contact_force[i][:,n] for i in range(num_contacts)])
