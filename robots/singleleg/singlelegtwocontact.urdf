@@ -51,7 +51,7 @@
         xyz="7.8462E-19 -2.1082E-17 -0.025"
         rpy="0 0 0" />
       <mass
-        value="1" />
+        value="0.1" />
       <inertia
         ixx="4E-06"
         ixy="5.4734E-23"
@@ -109,7 +109,7 @@
         xyz="6.3874E-18 2.1466E-17 -0.025"
         rpy="0 0 0" />
       <mass
-        value="1" />
+        value="0.1" />
       <inertia
         ixx="4E-06"
         ixy="-7.389E-23"
@@ -156,7 +156,7 @@
       xyz="0 -1 0" />
     <limit
       lower="-3.14"
-      upper="3.14"
+      upper="-0.1"
       effort="100"
       velocity="1" />
   </joint>
@@ -213,8 +213,8 @@
     <axis
       xyz="0 1 0" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="-1.5"
+      upper="1.5"
       effort="100"
       velocity="1" />
   </joint>
