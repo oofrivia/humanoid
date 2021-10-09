@@ -96,6 +96,7 @@ def gait_optimization(gait = 'walking_trot'):
     diagram.Publish(context)
 
     q0 = plant.GetPositions(plant_context)
+    v0 = plant.GetVelocities(plant_context)
     com_q0 = plant.CalcCenterOfMassPositionInWorld(plant_context)
 
     PositionView = MakeNamedViewPositions(plant, "Positions")
@@ -118,6 +119,7 @@ def gait_optimization(gait = 'walking_trot'):
     # jump
     T = 1.5 # total time
     N = 25
+    Stride = 0.05
     LiftKont = 7
     TouchKont = 16
     in_stance = np.zeros((2, N))
@@ -126,7 +128,6 @@ def gait_optimization(gait = 'walking_trot'):
 
     in_stance[0, TouchKont:] = 1
     in_stance[1, TouchKont:] = 1
-
 
 
     ##################################################################################################################
@@ -138,6 +139,7 @@ def gait_optimization(gait = 'walking_trot'):
     prog.AddLinearConstraint(sum(h[LiftKont:TouchKont]) >= 0.4)
     prog.AddLinearConstraint(sum(h) >= .9*T)
     prog.AddLinearConstraint(sum(h) <= 1.1*T)
+
 
     # Create one context per timestep (to maximize cache hits)
     context = [plant.CreateDefaultContext() for i in range(N)]
@@ -165,10 +167,13 @@ def gait_optimization(gait = 'walking_trot'):
     q_cost.joint_hip = 5
     q_cost.joint_knee = 5
     q_cost.joint_ankle = 5
-    v_cost.body_vx = 0
+    # v_cost.body_vx = 0
+    # v_cost.body_vz = 0
     v_cost.body_wx = 0
     v_cost.body_wy = 0
     v_cost.body_wz = 0
+
+
     for n in range(N):
         # Joint limits
         prog.AddBoundingBoxConstraint(plant.GetPositionLowerLimits(), plant.GetPositionUpperLimits(), q[:,n])
@@ -182,14 +187,18 @@ def gait_optimization(gait = 'walking_trot'):
                                                  plant.world_frame(), RotationMatrix(), 
                                                  0.1, context[n]), q[:,n])
         # Initial guess for all joint angles is the home position
-        prog.SetInitialGuess(q[:,n], q0)  # Solvers get stuck if the quaternion is initialized with all zeros.
+
+        qt = q0
+        qt[4] = 1.0*n*Stride/(N-1)
+        prog.SetInitialGuess(q[:,n], qt)  # Solvers get stuck if the quaternion is initialized with all zeros.
+        prog.SetInitialGuess(v[:,n], v0)
 
         # Running costs:
-        prog.AddQuadraticErrorCost(np.diag(q_cost), q0, q[:,n])
+        prog.AddQuadraticErrorCost(np.diag(q_cost), qt, q[:,n])
         prog.AddQuadraticErrorCost(np.diag(v_cost), [0]*nv, v[:,n])
 
-    # print(f'q0: {q0}')
-    # prog.AddBoundingBoxConstraint(q0, q0, q[:,0])
+
+
 
 
     # Make a new autodiff context for this constraint (to maximize cache hits)
@@ -205,11 +214,14 @@ def gait_optimization(gait = 'walking_trot'):
                 plant.SetPositions(context[context_index], q)
             v_from_qdot = plant.MapQDotToVelocity(context[context_index], (qn - q)/h)
         return v - v_from_qdot
+
+    veloCon = []
     for n in range(N-1):
-        prog.AddConstraint(
+        velocon = prog.AddConstraint(
             partial(velocity_dynamics_constraint, context_index=n), 
             lb=[0]*nv, ub=[0]*nv, 
             vars=np.concatenate(([h[n]], q[:,n], v[:,n], q[:,n+1])))
+        veloCon.append(velocon)
 
 
 
@@ -236,9 +248,12 @@ def gait_optimization(gait = 'walking_trot'):
     comdot = prog.NewContinuousVariables(3, N, "comdot")
     comddot = prog.NewContinuousVariables(3, N-1, "comddot")
     # Initial CoM x,y position == 0
-    prog.AddBoundingBoxConstraint(0, 0, com[:2,:])
+    prog.AddBoundingBoxConstraint(0, 0, com[:2,0])
+    prog.AddBoundingBoxConstraint(0.05, 0.05, com[0,-1])
     # Initial CoM z vel == 0
     prog.AddBoundingBoxConstraint(0, 0, comdot[2,0])
+    # All CoM x vel >= 0
+    prog.AddBoundingBoxConstraint(0, np.inf, comdot[0,:])
     # Final CoMddot z == 0
     prog.AddBoundingBoxConstraint(0, 0, comddot[2,-1])
 
@@ -422,6 +437,7 @@ def gait_optimization(gait = 'walking_trot'):
                             lb=np.array([0.02,-np.inf,-np.inf]), ub=np.array([0.04,np.inf,np.inf]), vars=np.concatenate((q[:,n], com[:,n])))
 
 
+    # prog.AddBoundingBoxConstraint(0.01, 0.01, q_view.body_x[[-1]])
 
 
 
@@ -496,7 +512,15 @@ def gait_optimization(gait = 'walking_trot'):
     print('H_sol z: \n',H_sol[2])
 
 
-
+    print(prog.EvalBinding(veloCon[16], result.GetSolution()))
+    print(prog.EvalBinding(veloCon[17], result.GetSolution()))
+    print(prog.EvalBinding(veloCon[18], result.GetSolution()))
+    print(prog.EvalBinding(veloCon[19], result.GetSolution()))
+    print(prog.EvalBinding(veloCon[20], result.GetSolution()))
+    print(prog.EvalBinding(veloCon[21], result.GetSolution()))
+    print(prog.EvalBinding(veloCon[22], result.GetSolution()))
+    print(prog.EvalBinding(veloCon[23], result.GetSolution()))
+    print(prog.EvalBinding(veloCon[-1], result.GetSolution()))
 
 
 
