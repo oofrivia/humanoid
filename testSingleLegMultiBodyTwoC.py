@@ -136,7 +136,7 @@ def gait_optimization(gait = 'walking_trot'):
     # Time steps    
     h = prog.NewContinuousVariables(N-1, "h")
     prog.AddBoundingBoxConstraint(0.01, 2.0*T/N, h)
-    prog.AddLinearConstraint(sum(h[LiftKont:TouchKont]) >= 0.4)
+    prog.AddLinearConstraint(sum(h[LiftKont:TouchKont]) >= 0.35)
     prog.AddLinearConstraint(sum(h) >= .9*T)
     prog.AddLinearConstraint(sum(h) <= 1.1*T)
 
