@@ -270,7 +270,7 @@ def gait_optimization(gait = 'walking_trot'):
     for n in range(N-1):
         # Note: The original matlab implementation used backwards Euler (here and throughout),
         # which is a little more consistent with the LCP contact models.
-        prog.AddConstraint(eq(com[:, n+1], com[:,n] + h[n]*comdot[:,n]))
+        prog.AddConstraint(eq(com[:, n+1], com[:,n] + h[n]*comdot[:,n] + 1/2*h[n]*h[n]*comddot[:,n]))
         prog.AddConstraint(eq(comdot[:, n+1], comdot[:,n] + h[n]*comddot[:,n]))
         prog.AddConstraint(eq(total_mass*comddot[:,n], sum(forceScale*contact_force[i][:,n] for i in range(num_contacts)) + total_mass*gravity))
 
@@ -398,12 +398,12 @@ def gait_optimization(gait = 'walking_trot'):
             return p_WF_n - p_WF
     for i in range(num_contacts):
         for n in range(N):
-            if in_stance[i, n]:
+            if in_stance[i, n] or in_stance[i, n-1] :
                 # foot should be on the ground (world position z=0)
                 prog.AddConstraint(PositionConstraint(
                     plant, plant.world_frame(), [-np.inf,-np.inf,0], [np.inf,np.inf,0], 
                     foot_frame[i], [0,0,0], context[n]), q[:,n])
-                if n > 0 and in_stance[i, n-1]:
+                if n>0 and in_stance[i, n-1]:
                     # feet should not move during stance.
                     prog.AddConstraint(partial(fixed_position_constraint, context_index=n-1, frame=foot_frame[i]),
                                        lb=np.zeros(3), ub=np.zeros(3), vars=np.concatenate((q[:,n-1], q[:,n])))
@@ -473,6 +473,13 @@ def gait_optimization(gait = 'walking_trot'):
       # print(f"infeasible constraint: {c.evaluator().get_description()}")
       print(f"infeasible constraint: {c}")
     print(result.get_solver_id().name(),': ', result.is_success())
+    print(f"optimal cost {result.get_optimal_cost()}")
+    # print(prog.EvalBinding(veloCon[16], result.GetSolution()))
+
+    # prog.SetInitialGuessForAllVariables(result.GetSolution())
+    # result = Solve(prog)
+    # print(f"optimal cost {result.get_optimal_cost()}")
+
 
 
 
@@ -497,30 +504,54 @@ def gait_optimization(gait = 'walking_trot'):
     print('h_sol : \n',h_sol)
 
     print('\ncontact_force_sol x: \n',contact_force_sol[0][0,:])
-    print('contact_force_sol y: \n',contact_force_sol[0][1,:])
+    print('contact_force_sol x: \n',contact_force_sol[1][0,:])
+    # print('contact_force_sol y: \n',contact_force_sol[0][1,:])
     print('contact_force_sol z: \n',contact_force_sol[0][2,:])
     print('contact_force_sol z: \n',contact_force_sol[1][2,:])
 
+
+    # print('\nH_sol z: \n',H_sol[0])
+    # print('H_sol z: \n',H_sol[1])
+    # print('H_sol z: \n',H_sol[2])
+
+
+
+    print('')
+    for i in range(N):
+        plant.SetPositions(plant_context, myq_sol[:,i])
+        p_WF = plant.CalcPointsPositions(plant_context, foot_frame[0], [0,0,0], plant.world_frame())
+        print(p_WF[2], end=' ')
+    print('')
+    for i in range(N):
+        plant.SetPositions(plant_context, myq_sol[:,i])
+        p_WF = plant.CalcPointsPositions(plant_context, foot_frame[1], [0,0,0], plant.world_frame())
+        print(p_WF[2], end=' ')
+    print('')
+
+
+    t_sol = np.zeros(N)
+    t_sol[0] = 0
+    for n in range(N-1):
+        t_sol[n+1] = t_sol[n] + h_sol[n]
+
+
+
+
+
+    print('\nt_sol z: \n',t_sol)
     print('\ncom_sol z: \n',com_sol[2])
     print('comdot_sol x: \n',comdot_sol[0])
-    print('comdot_sol y: \n',comdot_sol[1])
+    # print('comdot_sol y: \n',comdot_sol[1])
     print('comdot_sol z: \n',comdot_sol[2])
     print('comddot_sol z: \n',comddot_sol[2])
 
-    print('\nH_sol z: \n',H_sol[0])
-    print('H_sol z: \n',H_sol[1])
-    print('H_sol z: \n',H_sol[2])
 
 
-    print(prog.EvalBinding(veloCon[16], result.GetSolution()))
-    print(prog.EvalBinding(veloCon[17], result.GetSolution()))
-    print(prog.EvalBinding(veloCon[18], result.GetSolution()))
-    print(prog.EvalBinding(veloCon[19], result.GetSolution()))
-    print(prog.EvalBinding(veloCon[20], result.GetSolution()))
-    print(prog.EvalBinding(veloCon[21], result.GetSolution()))
-    print(prog.EvalBinding(veloCon[22], result.GetSolution()))
-    print(prog.EvalBinding(veloCon[23], result.GetSolution()))
-    print(prog.EvalBinding(veloCon[-1], result.GetSolution()))
+
+
+
+
+
 
 
 
@@ -534,11 +565,16 @@ def gait_optimization(gait = 'walking_trot'):
     t0 = t_sol[0]
     tf = t_sol[-1]
     T = tf*num_strides
+    index_h = 0
     for t in (np.arange(t0, T, visualizer.draw_period)):
+        if t>sum(h_sol[:index_h]) :
+          index_h = index_h+1
+
         context.SetTime(t)
         stride = (t - t0) // (tf - t0)
         ts = (t - t0) % (tf - t0)
         qt = PositionView(q_sol.value(ts))
+        # plant.SetPositions(plant_context, myq_sol[:,index_h])
         plant.SetPositions(plant_context, qt)
         diagram.Publish(context)
 
@@ -546,6 +582,13 @@ def gait_optimization(gait = 'walking_trot'):
     visualizer.publish_recording()
 
 
+    import matplotlib.pyplot as plt
+    comddot_sol = np.hstack((comddot_sol, np.array([[0],[0],[0]])))
+    plt.plot(t_sol , 0.1*comddot_sol[2,:], '*-')
+    plt.plot(t_sol , comdot_sol[2,:], '*-')
+    plt.plot(t_sol , 10*com_sol[2,:], '*-')
+    plt.legend(['comddot', 'comdot', 'com'])
+    plt.show()
 
 
 
