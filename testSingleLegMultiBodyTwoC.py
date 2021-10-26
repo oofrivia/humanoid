@@ -559,7 +559,7 @@ def gait_optimization(gait = 'walking_trot'):
     context = diagram.CreateDefaultContext()
     plant_context = plant.GetMyContextFromRoot(context)
     t_sol = np.cumsum(np.concatenate(([0],result.GetSolution(h))))
-    q_sol = PiecewisePolynomial.FirstOrderHold(t_sol, result.GetSolution(q))
+    q_sol = PiecewisePolynomial.CubicWithContinuousSecondDerivatives(t_sol, result.GetSolution(q), False)
     visualizer.start_recording()
     num_strides = 1
     t0 = t_sol[0]
