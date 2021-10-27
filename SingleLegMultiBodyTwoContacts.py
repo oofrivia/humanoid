@@ -2,6 +2,8 @@ import importlib
 import sys
 from urllib.request import urlretrieve
 
+from numpy.core.arrayprint import printoptions
+
 from meshcat.servers.zmqserver import start_zmq_server_as_subprocess
 proc, zmq_url, web_url = start_zmq_server_as_subprocess(
     server_args=['--ngrok_http_tunnel'] if 'google.colab' in sys.modules else [])
@@ -14,24 +16,13 @@ from pydrake.all import AddMultibodyPlantSceneGraph, DiagramBuilder, Parser, Con
 
 
 def set_home(plant, context):
-    hip_roll = .1;
-    # hip_pitch = 1;
-    # knee = 1.55;
-    hip_pitch = 1.5;
-    knee = 2;
-    plant.GetJointByName("front_right_hip_roll").set_angle(context, -hip_roll)
-    plant.GetJointByName("front_right_hip_pitch").set_angle(context, hip_pitch)
-    plant.GetJointByName("front_right_knee").set_angle(context, -knee)
-    plant.GetJointByName("front_left_hip_roll").set_angle(context, hip_roll)
-    plant.GetJointByName("front_left_hip_pitch").set_angle(context, hip_pitch)
-    plant.GetJointByName("front_left_knee").set_angle(context, -knee)
-    plant.GetJointByName("back_right_hip_roll").set_angle(context, -hip_roll)
-    plant.GetJointByName("back_right_hip_pitch").set_angle(context, -hip_pitch)
-    plant.GetJointByName("back_right_knee").set_angle(context, knee)
-    plant.GetJointByName("back_left_hip_roll").set_angle(context, hip_roll)
-    plant.GetJointByName("back_left_hip_pitch").set_angle(context, -hip_pitch)
-    plant.GetJointByName("back_left_knee").set_angle(context, knee)
-    plant.SetFreeBodyPose(context, plant.GetBodyByName("body"), RigidTransform([0, 0, 0.146]))
+    hip = 0.2
+    knee = -0.4
+    ankle = -0.2
+    plant.GetJointByName("joint_hip").set_angle(context, hip)
+    plant.GetJointByName("joint_knee").set_angle(context, knee)
+    plant.GetJointByName("joint_ankle").set_angle(context, ankle)
+    plant.SetFreeBodyPose(context, plant.GetBodyByName("body"), RigidTransform([0, 0, 0.13]))
 
 
 from functools import partial
@@ -92,7 +83,7 @@ def gait_optimization(gait = 'walking_trot'):
     builder = DiagramBuilder()
     plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 1e-3)
     parser = Parser(plant)
-    littledog = parser.AddModelFromFile('robots/littledog/LittleDog.urdf')
+    littledog = parser.AddModelFromFile('robots/singleleg/singlelegtwocontact.urdf')
     plant.Finalize()
     visualizer = ConnectMeshcatVisualizer(builder, 
         scene_graph=scene_graph, 
@@ -105,89 +96,50 @@ def gait_optimization(gait = 'walking_trot'):
     diagram.Publish(context)
 
     q0 = plant.GetPositions(plant_context)
-    body_frame = plant.GetFrameByName("body")
+    v0 = plant.GetVelocities(plant_context)
+    com_q0 = plant.CalcCenterOfMassPositionInWorld(plant_context)
 
     PositionView = MakeNamedViewPositions(plant, "Positions")
     VelocityView = MakeNamedViewVelocities(plant, "Velocities")
 
     mu = 1 # rubber on rubber
-    total_mass = sum(plant.get_body(index).get_mass(context) for index in plant.GetBodyIndices(littledog))
     gravity = plant.gravity_field().gravity_vector()
+    total_mass = sum(plant.get_body(index).get_mass(context) for index in plant.GetBodyIndices(littledog))
+    print(f'total_mass: {total_mass}')
 
-    nq = 12
+    body_frame = plant.GetFrameByName("body")
     foot_frame = [
-        plant.GetFrameByName('front_left_foot_center'),
-        plant.GetFrameByName('front_right_foot_center'),
-        plant.GetFrameByName('back_left_foot_center'),
-        plant.GetFrameByName('back_right_foot_center')]
-
-    # setup gait
-    is_laterally_symmetric = False
-    check_self_collision = False
-    if gait == 'running_trot':
-        N = 21
-        in_stance = np.zeros((4, N))
-        in_stance[1, 3:17] = 1
-        in_stance[2, 3:17] = 1
-        speed = 0.9
-        stride_length = .55
-        is_laterally_symmetric = True
-    elif gait == 'walking_trot':
-        N = 21
-        in_stance = np.zeros((4, N))
-        in_stance[0, :11] = 1
-        in_stance[1, 8:N] = 1
-        in_stance[2, 8:N] = 1
-        in_stance[3, :11] = 1
-        speed = 0.4
-        stride_length = .25
-        is_laterally_symmetric = True
-    elif gait == 'rotary_gallop':
-        N = 41
-        in_stance = np.zeros((4, N))
-        in_stance[0, 7:19] = 1
-        in_stance[1, 3:15] = 1
-        in_stance[2, 24:35] = 1
-        in_stance[3, 26:38] = 1
-        speed = 1
-        stride_length = .65
-        check_self_collision = True
-    elif gait == 'bound':
-        N = 41
-        in_stance = np.zeros((4, N))
-        in_stance[0, 6:18] = 1
-        in_stance[1, 6:18] = 1
-        in_stance[2, 21:32] = 1
-        in_stance[3, 21:32] = 1
-        speed = 1.2
-    elif gait == 'jump':
-        N = 25
-        in_stance = np.zeros((4, N))
-        in_stance[0, :7] = 1
-        in_stance[1, :7] = 1
-        in_stance[2, :7] = 1
-        in_stance[3, :7] = 1
-
-        in_stance[0, 20:] = 1
-        in_stance[1, 20:] = 1
-        in_stance[2, 20:] = 1
-        in_stance[3, 20:] = 1
-
-        stride_length = .01
-        check_self_collision = True
-    else:
-        raise RuntimeError('Unknown gait.')
+        plant.GetFrameByName('frame_toe'),
+        plant.GetFrameByName('frame_heel')]
+    num_contacts = len(foot_frame)
 
 
-    T = 1.2
 
+
+    # jump
+    T = 1.5 # total time
+    N = 25
+    Stride = 0.05
+    LiftKont = 7
+    TouchKont = 16
+    in_stance = np.zeros((2, N))
+    in_stance[0, :LiftKont] = 1
+    in_stance[1, :LiftKont] = 1
+
+    in_stance[0, TouchKont:] = 1
+    in_stance[1, TouchKont:] = 1
+
+
+    ##################################################################################################################
     prog = MathematicalProgram()        
 
     # Time steps    
     h = prog.NewContinuousVariables(N-1, "h")
-    prog.AddBoundingBoxConstraint(0.5*T/N, 2.0*T/N, h)
+    prog.AddBoundingBoxConstraint(0.01, 2.0*T/N, h)
+    prog.AddLinearConstraint(sum(h[LiftKont:TouchKont]) >= 0.35)
     prog.AddLinearConstraint(sum(h) >= .9*T)
     prog.AddLinearConstraint(sum(h) <= 1.1*T)
+
 
     # Create one context per timestep (to maximize cache hits)
     context = [plant.CreateDefaultContext() for i in range(N)]
@@ -197,6 +149,8 @@ def gait_optimization(gait = 'walking_trot'):
     # Joint positions and velocities
     nq = plant.num_positions()
     nv = plant.num_velocities()
+    print(f'nq: {nq}   nv: {nv}')
+
     q = prog.NewContinuousVariables(nq, N, "q")
     v = prog.NewContinuousVariables(nv, N, "v")
     q_view = PositionView(q)
@@ -205,25 +159,26 @@ def gait_optimization(gait = 'walking_trot'):
     # Joint costs
     q_cost = PositionView([1]*nq)
     v_cost = VelocityView([1]*nv)
-    q_cost.body_x = 0
-    q_cost.body_y = 0
+    q_cost.body_z = 0
     q_cost.body_qx = 0
     q_cost.body_qy = 0
     q_cost.body_qz = 0
     q_cost.body_qw = 0
-    q_cost.front_left_hip_roll = 5
-    q_cost.front_right_hip_roll = 5
-    q_cost.back_left_hip_roll = 5
-    q_cost.back_right_hip_roll = 5
-    v_cost.body_vx = 0
+    q_cost.joint_hip = 5
+    q_cost.joint_knee = 5
+    q_cost.joint_ankle = 5
+    # v_cost.body_vx = 0
+    # v_cost.body_vz = 0
     v_cost.body_wx = 0
     v_cost.body_wy = 0
     v_cost.body_wz = 0
+
+
     for n in range(N):
         # Joint limits
         prog.AddBoundingBoxConstraint(plant.GetPositionLowerLimits(), plant.GetPositionUpperLimits(), q[:,n])
         # Joint velocity limits
-        prog.AddBoundingBoxConstraint(plant.GetVelocityLowerLimits(), plant.GetVelocityUpperLimits(), v[:,n])
+        # prog.AddBoundingBoxConstraint(plant.GetVelocityLowerLimits(), plant.GetVelocityUpperLimits(), v[:,n])
         # Unit quaternions
         AddUnitQuaternionConstraintOnPlant(plant, q[:,n], prog)
         # Body orientation
@@ -232,11 +187,19 @@ def gait_optimization(gait = 'walking_trot'):
                                                  plant.world_frame(), RotationMatrix(), 
                                                  0.1, context[n]), q[:,n])
         # Initial guess for all joint angles is the home position
-        prog.SetInitialGuess(q[:,n], q0)  # Solvers get stuck if the quaternion is initialized with all zeros.
+
+        qt = q0
+        qt[4] = 1.0*n*Stride/(N-1)
+        prog.SetInitialGuess(q[:,n], qt)  # Solvers get stuck if the quaternion is initialized with all zeros.
+        prog.SetInitialGuess(v[:,n], v0)
 
         # Running costs:
-        prog.AddQuadraticErrorCost(np.diag(q_cost), q0, q[:,n])
+        prog.AddQuadraticErrorCost(np.diag(q_cost), qt, q[:,n])
         prog.AddQuadraticErrorCost(np.diag(v_cost), [0]*nv, v[:,n])
+
+
+
+
 
     # Make a new autodiff context for this constraint (to maximize cache hits)
     ad_velocity_dynamics_context = [ad_plant.CreateDefaultContext() for i in range(N)]
@@ -251,23 +214,34 @@ def gait_optimization(gait = 'walking_trot'):
                 plant.SetPositions(context[context_index], q)
             v_from_qdot = plant.MapQDotToVelocity(context[context_index], (qn - q)/h)
         return v - v_from_qdot
+
+    veloCon = []
     for n in range(N-1):
-        prog.AddConstraint(
+        velocon = prog.AddConstraint(
             partial(velocity_dynamics_constraint, context_index=n), 
             lb=[0]*nv, ub=[0]*nv, 
             vars=np.concatenate(([h[n]], q[:,n], v[:,n], q[:,n+1])))
+        veloCon.append(velocon)
 
+
+
+
+
+
+
+    ##################################################################################################################
     # Contact forces
-    contact_force = [prog.NewContinuousVariables(3, N-1, f"foot{foot}_contact_force") for foot in range(4)]
+    contact_force = [prog.NewContinuousVariables(3, N-1, f"foot{foot}_contact_force") for foot in range(num_contacts)]
+    forceScale = 9.81*total_mass
     for n in range(N-1):
-        for foot in range(4):
+        for foot in range(num_contacts):
             # Linear friction cone
             prog.AddLinearConstraint(contact_force[foot][0,n] <= mu*contact_force[foot][2,n])
             prog.AddLinearConstraint(-contact_force[foot][0,n] <= mu*contact_force[foot][2,n])
             prog.AddLinearConstraint(contact_force[foot][1,n] <= mu*contact_force[foot][2,n])
             prog.AddLinearConstraint(-contact_force[foot][1,n] <= mu*contact_force[foot][2,n])
             # normal force >=0, normal_force == 0 if not in_stance
-            prog.AddBoundingBoxConstraint(0, in_stance[foot,n]*4*9.81*total_mass, contact_force[foot][2,n])            
+            prog.AddBoundingBoxConstraint(0, in_stance[foot,n]*10, contact_force[foot][2,n]) 
 
     # Center of mass variables and constraints
     com = prog.NewContinuousVariables(3, N, "com")
@@ -275,34 +249,44 @@ def gait_optimization(gait = 'walking_trot'):
     comddot = prog.NewContinuousVariables(3, N-1, "comddot")
     # Initial CoM x,y position == 0
     prog.AddBoundingBoxConstraint(0, 0, com[:2,0])
+    prog.AddBoundingBoxConstraint(0.05, 0.05, com[0,-1])
     # Initial CoM z vel == 0
     prog.AddBoundingBoxConstraint(0, 0, comdot[2,0])
-    # CoM height
-    prog.AddBoundingBoxConstraint(.1, np.inf, com[2,:])
-    # CoM x velocity >= 0
+    # All CoM x vel >= 0
     prog.AddBoundingBoxConstraint(0, np.inf, comdot[0,:])
-    # CoM final x position
-    if is_laterally_symmetric:
-        prog.AddBoundingBoxConstraint(stride_length/2.0, stride_length/2.0, com[0,-1])
-    else:
-        prog.AddBoundingBoxConstraint(stride_length, stride_length, com[0,-1])
+    # Final CoMddot z == 0
+    prog.AddBoundingBoxConstraint(0, 0, comddot[2,-1])
+
+    # CoM height for # Kinematic constraints
+    for n in range(LiftKont+2):
+      prog.AddBoundingBoxConstraint(.05 , 0.12, com[2,n])
+    for n in range(LiftKont+2, TouchKont, 1):
+      prog.AddBoundingBoxConstraint(.05 , np.inf, com[2,n])
+    for n in range(TouchKont, N, 1):
+      prog.AddBoundingBoxConstraint(.05 , 0.12, com[2,n])
+
+
     # CoM dynamics
     for n in range(N-1):
         # Note: The original matlab implementation used backwards Euler (here and throughout),
         # which is a little more consistent with the LCP contact models.
-        prog.AddConstraint(eq(com[:, n+1], com[:,n] + h[n]*comdot[:,n]))
+        prog.AddConstraint(eq(com[:, n+1], com[:,n] + h[n]*comdot[:,n] + 1/2*h[n]*h[n]*comddot[:,n]))
         prog.AddConstraint(eq(comdot[:, n+1], comdot[:,n] + h[n]*comddot[:,n]))
-        prog.AddConstraint(eq(total_mass*comddot[:,n], sum(contact_force[i][:,n] for i in range(4)) + total_mass*gravity))
+        prog.AddConstraint(eq(total_mass*comddot[:,n], sum(forceScale*contact_force[i][:,n] for i in range(num_contacts)) + total_mass*gravity))
 
 
 
-    # for n in range(9,16,1):
-    #     prog.AddQuadraticErrorCost(np.diag([1e2,1e2,1e2]),[0]*3,comddot[:,n])
+    for i in range(num_contacts):
+      for n in range(N-1):
+          prog.AddQuadraticErrorCost(np.diag([1e2,1e2,1e2]), [0]*3, contact_force[i][:,n])
 
     def jerk(vars):
         comddot,comddotN = np.split(vars, [3])
         jerk = comddotN - comddot
-        return (jerk[0]*jerk[0] + jerk[1]*jerk[1] + jerk[2]*jerk[2])*1e4
+        return (jerk[0]*jerk[0] + jerk[1]*jerk[1] + jerk[2]*jerk[2])*1e3
+
+    for n in range(N-2):
+        prog.AddCost(jerk, vars=np.concatenate((comddot[:,n],comddot[:,n+1])))
 
     def nvjerk(vars):
         jointv, jointvn, jointvn1 = np.split(vars, [nv,2*nv])
@@ -314,57 +298,53 @@ def gait_optimization(gait = 'walking_trot'):
           norm += jerk[i+6]*jerk[i+6]*1e3
         return norm
 
-    for n in range(N-2):
-        prog.AddCost(jerk, vars=np.concatenate((comddot[:,n],comddot[:,n+1])))
-
     for n in range(N-3):
         prog.AddCost(nvjerk, vars=np.concatenate((v[:,n],v[:,n+1],v[:,n+2])))
 
-    for n in range(9,16,1):
-        prog.AddLinearCost(-1e3*com[2,n])
-
-    for i in range(4):
-      for n in range(N-1):
-          prog.AddQuadraticErrorCost(np.diag([1e2,1e2,1e2]), [0]*3, contact_force[i][:,n])
+    # for n in range(9,16,1):
+    #     prog.AddLinearCost(-1e3*com[2,n])
 
 
 
 
 
 
-
+    ##################################################################################################################
     # Angular momentum (about the center of mass)
     H = prog.NewContinuousVariables(3, N, "H")
     Hdot = prog.NewContinuousVariables(3, N-1, "Hdot")
     prog.SetInitialGuess(H, np.zeros((3, N)))
     prog.SetInitialGuess(Hdot, np.zeros((3,N-1)))
     # Hdot = sum_i cross(p_FootiW-com, contact_force_i)
+    for n in range(N-1):
+        prog.AddConstraint(eq(H[:,n+1], H[:,n] + h[n]*Hdot[:,n]))
+
+
     def angular_momentum_constraint(vars, context_index):
         q, com, Hdot, contact_force = np.split(vars, [nq, nq+3, nq+6])
-        contact_force = contact_force.reshape(3, 4, order='F')
+        contact_force = contact_force.reshape(3, num_contacts, order='F')
         if isinstance(vars[0], AutoDiffXd):
             q = autoDiffToValueMatrix(q)
             if not np.array_equal(q, plant.GetPositions(context[context_index])):
                 plant.SetPositions(context[context_index], q)
             torque = np.zeros(3)
-            for i in range(4):
+            for i in range(num_contacts):
                 p_WF = plant.CalcPointsPositions(context[context_index], foot_frame[i], [0,0,0], plant.world_frame())
                 Jq_WF = plant.CalcJacobianTranslationalVelocity(
                     context[context_index], JacobianWrtVariable.kQDot,
                     foot_frame[i], [0, 0, 0], plant.world_frame(), plant.world_frame())
-                ad_p_WF = initializeAutoDiffGivenGradientMatrix(p_WF, np.hstack((Jq_WF, np.zeros((3, 18)))))
-                torque = torque     + np.cross(ad_p_WF.reshape(3) - com, contact_force[:,i])
+                ad_p_WF = initializeAutoDiffGivenGradientMatrix(p_WF, np.hstack((Jq_WF, np.zeros((3, 12)))))
+                torque = torque     + np.cross(ad_p_WF.reshape(3) - com, forceScale*contact_force[:,i])
         else:
             if not np.array_equal(q, plant.GetPositions(context[context_index])):
                 plant.SetPositions(context[context_index], q)
             torque = np.zeros(3)
-            for i in range(4):
+            for i in range(num_contacts):
                 p_WF = plant.CalcPointsPositions(context[context_index], foot_frame[i], [0,0,0], plant.world_frame())
-                torque += np.cross(p_WF.reshape(3) - com, contact_force[:,i])
+                torque += np.cross(p_WF.reshape(3) - com, forceScale*contact_force[:,i])
         return Hdot - torque
     for n in range(N-1):
-        prog.AddConstraint(eq(H[:,n+1], H[:,n] + h[n]*Hdot[:,n]))
-        Fn = np.concatenate([contact_force[i][:,n] for i in range(4)])
+        Fn = np.concatenate([contact_force[i][:,n] for i in range(num_contacts)])
         prog.AddConstraint(partial(angular_momentum_constraint, context_index=n), lb=np.zeros(3), ub=np.zeros(3), 
                            vars=np.concatenate((q[:,n], com[:,n], Hdot[:,n], Fn)))
 
@@ -378,6 +358,7 @@ def gait_optimization(gait = 'walking_trot'):
                 ad_plant.SetPositionsAndVelocities(com_constraint_context[context_index], qv)
             com_q = ad_plant.CalcCenterOfMassPositionInWorld(com_constraint_context[context_index])
             H_qv = ad_plant.CalcSpatialMomentumInWorldAboutPoint(com_constraint_context[context_index], com).rotational()
+
         else:
             if not np.array_equal(qv, plant.GetPositionsAndVelocities(context[context_index])):
                 plant.SetPositionsAndVelocities(context[context_index], qv)
@@ -388,8 +369,15 @@ def gait_optimization(gait = 'walking_trot'):
         prog.AddConstraint(partial(com_constraint, context_index=n), 
             lb=np.zeros(6), ub=np.zeros(6), vars=np.concatenate((q[:,n], v[:,n], com[:,n], H[:,n])))
 
-    # TODO: Add collision constraints
 
+
+
+
+
+
+
+
+    ##################################################################################################################
     # Kinematic constraints
     def fixed_position_constraint(vars, context_index, frame):
         q, qn = np.split(vars, [nq])
@@ -408,14 +396,14 @@ def gait_optimization(gait = 'walking_trot'):
                 p_WF_n - p_WF, J_WF_n @ autoDiffToGradientMatrix(qn) - J_WF @ autoDiffToGradientMatrix(q))
         else:
             return p_WF_n - p_WF
-    for i in range(4):
+    for i in range(num_contacts):
         for n in range(N):
-            if in_stance[i, n]:
+            if in_stance[i, n] or in_stance[i, n-1] :
                 # foot should be on the ground (world position z=0)
                 prog.AddConstraint(PositionConstraint(
                     plant, plant.world_frame(), [-np.inf,-np.inf,0], [np.inf,np.inf,0], 
                     foot_frame[i], [0,0,0], context[n]), q[:,n])
-                if n > 0 and in_stance[i, n-1]:
+                if n>0 and in_stance[i, n-1]:
                     # feet should not move during stance.
                     prog.AddConstraint(partial(fixed_position_constraint, context_index=n-1, frame=foot_frame[i]),
                                        lb=np.zeros(3), ub=np.zeros(3), vars=np.concatenate((q[:,n-1], q[:,n])))
@@ -424,20 +412,38 @@ def gait_optimization(gait = 'walking_trot'):
                 prog.AddConstraint(PositionConstraint(plant, plant.world_frame(), [-np.inf,-np.inf,min_clearance], [np.inf,np.inf,np.inf],foot_frame[i],[0,0,0],context[n]), q[:,n])
 
 
-    # Body orientation must be in the xz plane:
-    prog.AddBoundingBoxConstraint(0, 0, q_view.body_y[[0,-1]])
-    prog.AddBoundingBoxConstraint(0, 0, q_view.body_qx[[0,-1]])
-    prog.AddBoundingBoxConstraint(0, 0, q_view.body_qz[[0,-1]])
 
-    # Everything except body_x is periodic
-    q_selector = PositionView([True]*nq)
-    q_selector.body_x = False
-    prog.AddLinearConstraint(eq(q[q_selector,0], q[q_selector,-1]))
-    prog.AddLinearConstraint(eq(v[:,0], v[:,-1]))
-    qt = [ 1., 0., 0., 0., np.inf, 0., 0.146, 0.1, -0.1, 0.1, -0.1, 1.5, 1.5, -1.5, -1.5, -2., -2., 2., 2.]
-    # prog.AddBoundingBoxConstraint(q0, qt, q[:,-1])
+    def support_ploygon_constraint(vars, context_index):
+        q, com = np.split(vars, [nq])
+        if isinstance(vars[0], AutoDiffXd):
+            q = autoDiffToValueMatrix(q)
+            if not np.array_equal(q, plant.GetPositions(context[context_index])):
+                plant.SetPositions(context[context_index], q)
+            p_WF = plant.CalcPointsPositions(context[context_index], foot_frame[0], [0,0,0], plant.world_frame())
+            Jq_WF = plant.CalcJacobianTranslationalVelocity(
+                context[context_index], JacobianWrtVariable.kQDot,
+                foot_frame[0], [0, 0, 0], plant.world_frame(), plant.world_frame())
+            ad_p_WF = initializeAutoDiffGivenGradientMatrix(p_WF, np.hstack((Jq_WF, np.zeros((3, 12)))))
+            distance = ad_p_WF.reshape(3) - com
+        else:
+            if not np.array_equal(q, plant.GetPositions(context[context_index])):
+                plant.SetPositions(context[context_index], q)
+            p_WF = plant.CalcPointsPositions(context[context_index], foot_frame[0], [0,0,0], plant.world_frame())
+            distance = p_WF.reshape(3) - com
+        return distance
+
+    for n in range(N):
+        prog.AddConstraint(partial(support_ploygon_constraint, context_index=n),
+                            lb=np.array([0.02,-np.inf,-np.inf]), ub=np.array([0.04,np.inf,np.inf]), vars=np.concatenate((q[:,n], com[:,n])))
 
 
+    # prog.AddBoundingBoxConstraint(0.01, 0.01, q_view.body_x[[-1]])
+
+
+
+
+
+    ##################################################################################################################
     # TODO: Set solver parameters (mostly to make the worst case solve times less bad)
     snopt = SnoptSolver().solver_id()
     prog.SetSolverOption(snopt, 'Iterations Limits', 1e6 )
@@ -448,6 +454,12 @@ def gait_optimization(gait = 'walking_trot'):
     prog.SetSolverOption(snopt, 'Linesearch tolerance', 0.9)
     # prog.SetSolverOption(snopt, 'Scale option', 2)
     prog.SetSolverOption(snopt, 'Print file', 'snopt.out')
+
+    from shutil import copyfile
+    source = 'snopt.out'
+    target = 'snopt.out_old'
+    copyfile(source, target)
+
     f=open('snopt.out','w')
     f.truncate()
 
@@ -461,29 +473,86 @@ def gait_optimization(gait = 'walking_trot'):
       # print(f"infeasible constraint: {c.evaluator().get_description()}")
       print(f"infeasible constraint: {c}")
     print(result.get_solver_id().name(),': ', result.is_success())
+    print(f"optimal cost {result.get_optimal_cost()}")
+    # print(prog.EvalBinding(veloCon[16], result.GetSolution()))
+
+    # prog.SetInitialGuessForAllVariables(result.GetSolution())
+    # result = Solve(prog)
+    # print(f"optimal cost {result.get_optimal_cost()}")
 
 
 
-    contact_force_sol = [result.GetSolution(contact_force[i]) for i in range(4)]
-    myv_sol = result.GetSolution(v)
-    myq_sol = result.GetSolution(q)
+
     h_sol = result.GetSolution(h)
-    H_sol = result.GetSolution(H)
-    Hdot_sol = result.GetSolution(Hdot)
+    myq_sol = result.GetSolution(q)
+    myv_sol = result.GetSolution(v)
     com_sol = result.GetSolution(com)
     comdot_sol = result.GetSolution(comdot)
     comddot_sol = result.GetSolution(comddot)
+    H_sol = result.GetSolution(H)
+    Hdot_sol = result.GetSolution(Hdot)
+    contact_force_sol = [result.GetSolution(contact_force[i]) for i in range(num_contacts)]
+
+
+    np.savez('TrajData/Traj.npy', h_sol, myq_sol, myv_sol, 
+        com_sol, comdot_sol, comddot_sol, H_sol, Hdot_sol, 
+        contact_force_sol,)
+
+
+
+
+
+
 
 
     np.set_printoptions(precision=3)
     np.set_printoptions(suppress=True)
+    np.set_printoptions(linewidth=1000)
 
-    i = 0
-    print('h_sol x: \n',h_sol)
-    print('contact_force_sol x: \n',contact_force_sol[i][0,:])
-    print('contact_force_sol y: \n',contact_force_sol[i][1,:])
-    print('contact_force_sol z: \n',contact_force_sol[i][2,:])
-    print('com_sol z: \n',com_sol[2])
+    print('h_sol lift: \n',sum(h_sol[0:LiftKont]))
+    print('h_sol fly: \n',sum(h_sol[LiftKont:TouchKont]))
+    print('h_sol touch: \n',sum(h_sol[TouchKont:-1]))
+    print('h_sol : \n',h_sol)
+
+    print('\ncontact_force_sol x: \n',contact_force_sol[0][0,:])
+    print('contact_force_sol x: \n',contact_force_sol[1][0,:])
+    # print('contact_force_sol y: \n',contact_force_sol[0][1,:])
+    print('contact_force_sol z: \n',contact_force_sol[0][2,:])
+    print('contact_force_sol z: \n',contact_force_sol[1][2,:])
+
+
+    # print('\nH_sol z: \n',H_sol[0])
+    # print('H_sol z: \n',H_sol[1])
+    # print('H_sol z: \n',H_sol[2])
+
+
+
+    print('')
+    for i in range(N):
+        plant.SetPositions(plant_context, myq_sol[:,i])
+        p_WF = plant.CalcPointsPositions(plant_context, foot_frame[0], [0,0,0], plant.world_frame())
+        print(p_WF[2], end=' ')
+    print('')
+    for i in range(N):
+        plant.SetPositions(plant_context, myq_sol[:,i])
+        p_WF = plant.CalcPointsPositions(plant_context, foot_frame[1], [0,0,0], plant.world_frame())
+        print(p_WF[2], end=' ')
+    print('')
+
+
+    t_sol = np.zeros(N)
+    t_sol[0] = 0
+    for n in range(N-1):
+        t_sol[n+1] = t_sol[n] + h_sol[n]
+
+
+
+
+
+    print('\nt_sol z: \n',t_sol)
+    print('\ncom_sol z: \n',com_sol[2])
+    print('comdot_sol x: \n',comdot_sol[0])
+    # print('comdot_sol y: \n',comdot_sol[1])
     print('comdot_sol z: \n',comdot_sol[2])
     print('comddot_sol z: \n',comddot_sol[2])
 
@@ -497,75 +566,45 @@ def gait_optimization(gait = 'walking_trot'):
 
 
 
-
-
-
-
-
-
-
-
-
-    def HalfStrideToFullStride(a):
-        b = PositionView(np.copy(a))
-
-        b.body_y = -a.body_y
-        # Mirror quaternion so that roll=-roll, yaw=-yaw
-        b.body_qx = -a.body_qx
-        b.body_qz = -a.body_qz
-
-        b.front_left_hip_roll = -a.front_right_hip_roll
-        b.front_right_hip_roll = -a.front_left_hip_roll
-        b.back_left_hip_roll = -a.back_right_hip_roll
-        b.back_right_hip_roll = -a.back_left_hip_roll
-
-        b.front_left_hip_pitch = a.front_right_hip_pitch
-        b.front_right_hip_pitch = a.front_left_hip_pitch
-        b.back_left_hip_pitch = a.back_right_hip_pitch
-        b.back_right_hip_pitch = a.back_left_hip_pitch
-
-        b.front_left_knee = a.front_right_knee
-        b.front_right_knee = a.front_left_knee
-        b.back_left_knee = a.back_right_knee
-        b.back_right_knee = a.back_left_knee
-
-        return b
-
-
     # Animate trajectory
     context = diagram.CreateDefaultContext()
     plant_context = plant.GetMyContextFromRoot(context)
     t_sol = np.cumsum(np.concatenate(([0],result.GetSolution(h))))
-    q_sol = PiecewisePolynomial.FirstOrderHold(t_sol, result.GetSolution(q))
+    q_sol = PiecewisePolynomial.CubicWithContinuousSecondDerivatives(t_sol, result.GetSolution(q), False)
     visualizer.start_recording()
     num_strides = 1
     t0 = t_sol[0]
     tf = t_sol[-1]
-    T = tf*num_strides*(2.0 if is_laterally_symmetric else 1.0)
+    T = tf*num_strides
+    index_h = 0
     for t in (np.arange(t0, T, visualizer.draw_period)):
+        if t>sum(h_sol[:index_h]) :
+          index_h = index_h+1
+
         context.SetTime(t)
         stride = (t - t0) // (tf - t0)
         ts = (t - t0) % (tf - t0)
         qt = PositionView(q_sol.value(ts))
-        if is_laterally_symmetric:
-            if stride % 2 == 1:
-                qt = HalfStrideToFullStride(qt)
-                qt.body_x += stride_length/2.0
-            stride = stride // 2
-        qt.body_x += stride*stride_length
+        # plant.SetPositions(plant_context, myq_sol[:,index_h])
         plant.SetPositions(plant_context, qt)
         diagram.Publish(context)
 
     visualizer.stop_recording()
     visualizer.publish_recording()
-    
-# Try them all!  The last two could use a little tuning.
+
+
+    # import matplotlib.pyplot as plt
+    # comddot_sol = np.hstack((comddot_sol, np.array([[0],[0],[0]])))
+    # plt.plot(t_sol , 0.1*comddot_sol[2,:], '*-')
+    # plt.plot(t_sol , comdot_sol[2,:], '*-')
+    # plt.plot(t_sol , 10*com_sol[2,:], '*-')
+    # plt.legend(['comddot', 'comdot', 'com'])
+    # plt.show()
+
+
+
 
 gait_optimization('jump')
-# gait_optimization('walking_trot')
-# gait_optimization('running_trot')
-# gait_optimization('rotary_gallop')  
-# gait_optimization('bound')
 
 import time
 time.sleep(1e7)

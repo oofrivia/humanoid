@@ -1,0 +1,435 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-1-g15f4949  Build Version: 1.6.7594.29634
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="BipedRobot1015">
+  <link
+    name="body">
+    <inertial>
+      <origin
+        xyz="-9.1028E-18 -1.3415E-17 1.0908E-10"
+        rpy="0 0 0" />
+      <mass
+        value="10" />
+      <inertia
+        ixx="0.063187"
+        ixy="2.3828E-19"
+        ixz="2.0336E-23"
+        iyy="0.05475"
+        iyz="1.1308E-18"
+        izz="0.021937" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/body.obj" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.69804 0.69804 0.69804 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/body.obj" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="left_up_leg">
+    <inertial>
+      <origin
+        xyz="-1.4705E-18 0.01375 -0.075"
+        rpy="0 0 0" />
+      <mass
+        value="3" />
+      <inertia
+        ixx="0.006625"
+        ixy="1.1269E-20"
+        ixz="4.0004E-20"
+        iyy="0.006625"
+        iyz="1.4522E-18"
+        izz="0.00045" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/left_up_leg.obj" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.69804 0.69804 0.69804 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/left_up_leg.obj" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_left_hip"
+    type="revolute">
+    <origin
+      xyz="0 0.03375 -0.11"
+      rpy="0 0 0" />
+    <parent
+      link="body" />
+    <child
+      link="left_up_leg" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="100"
+      velocity="1" />
+  </joint>
+
+  <transmission type="SimpleTransmission">
+    <joint name="joint_left_hip"/>
+    <actuator name="left_hip"/>
+  </transmission>
+
+  <link
+    name="left_low_leg">
+    <inertial>
+      <origin
+        xyz="-2.9187E-18 4.2605E-15 -0.075"
+        rpy="0 0 0" />
+      <mass
+        value="1.5" />
+      <inertia
+        ixx="0.0033125"
+        ixy="-1.1075E-20"
+        ixz="-2.0256E-19"
+        iyy="0.0033125"
+        iyz="-7.5544E-19"
+        izz="0.000225" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/left_low_leg.obj" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.69804 0.69804 0.69804 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/left_low_leg.obj" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_left_knee"
+    type="revolute">
+    <origin
+      xyz="0 0.0137499999999958 -0.15"
+      rpy="0 0 0" />
+    <parent
+      link="left_up_leg" />
+    <child
+      link="left_low_leg" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="100"
+      velocity="1" />
+  </joint>
+
+  <transmission type="SimpleTransmission">
+    <joint name="joint_left_knee"/>
+    <actuator name="left_knee"/>
+  </transmission>
+
+  <link
+    name="left_foot">
+    <inertial>
+      <origin
+        xyz="-5.0325E-18 -6.9389E-18 1.3878E-17"
+        rpy="0 0 0" />
+      <mass
+        value="0.5" />
+      <inertia
+        ixx="7.5E-05"
+        ixy="-5.1239E-20"
+        ixz="-3.2343E-21"
+        iyy="0.00030417"
+        iyz="-5.392E-21"
+        izz="0.00030417" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/left_foot.obj" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.69804 0.69804 0.69804 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/left_foot.obj" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_left_ankle"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.15"
+      rpy="0 0 0" />
+    <parent
+      link="left_low_leg" />
+    <child
+      link="left_foot" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="100"
+      velocity="1" />
+  </joint>
+
+  <transmission type="SimpleTransmission">
+    <joint name="joint_left_ankle"/>
+    <actuator name="left_ankle"/>
+  </transmission>
+  
+  <frame link="left_foot" name="left_foot" xyz="0 0 0"/>
+
+  <link
+    name="right_up_leg">
+    <inertial>
+      <origin
+        xyz="-5.6891E-17 -0.01375 -0.075"
+        rpy="0 0 0" />
+      <mass
+        value="3" />
+      <inertia
+        ixx="0.006625"
+        ixy="4.0835E-20"
+        ixz="9.628E-19"
+        iyy="0.006625"
+        iyz="7.0549E-19"
+        izz="0.00045" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/right_up_leg.obj" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.69804 0.69804 0.69804 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/right_up_leg.obj" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_right_hip"
+    type="revolute">
+    <origin
+      xyz="0 -0.03375 -0.11"
+      rpy="0 0 0" />
+    <parent
+      link="body" />
+    <child
+      link="right_up_leg" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="100"
+      velocity="1" />
+  </joint>
+
+  <transmission type="SimpleTransmission">
+    <joint name="joint_right_hip"/>
+    <actuator name="right_hip"/>
+  </transmission>
+
+  <link
+    name="right_low_leg">
+    <inertial>
+      <origin
+        xyz="6.7702E-18 -6.9389E-18 -0.075"
+        rpy="0 0 0" />
+      <mass
+        value="1.5" />
+      <inertia
+        ixx="0.0033125"
+        ixy="1.4533E-20"
+        ixz="-1.7995E-20"
+        iyy="0.0033125"
+        iyz="2.1719E-20"
+        izz="0.000225" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/right_low_leg.obj" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.69804 0.69804 0.69804 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/right_low_leg.obj" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_right_knee"
+    type="revolute">
+    <origin
+      xyz="0 -0.01375 -0.15"
+      rpy="0 0 0" />
+    <parent
+      link="right_up_leg" />
+    <child
+      link="right_low_leg" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="100"
+      velocity="1" />
+  </joint>
+
+  <transmission type="SimpleTransmission">
+    <joint name="joint_right_knee"/>
+    <actuator name="right_knee"/>
+  </transmission>
+
+  <link
+    name="right_foot">
+    <inertial>
+      <origin
+        xyz="3.3553E-17 -6.9389E-18 1.7347E-18"
+        rpy="0 0 0" />
+      <mass
+        value="0.5" />
+      <inertia
+        ixx="7.5E-05"
+        ixy="-6.6957E-20"
+        ixz="2.3582E-20"
+        iyy="0.00030417"
+        iyz="-1.4705E-21"
+        izz="0.00030417" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/right_foot.obj" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.69804 0.69804 0.69804 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="meshes/right_foot.obj" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_right_ankle"
+    type="revolute">
+    <origin
+      xyz="0 0 -0.15"
+      rpy="0 0 0" />
+    <parent
+      link="right_low_leg" />
+    <child
+      link="right_foot" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="-3.14"
+      upper="3.14"
+      effort="100"
+      velocity="1" />
+  </joint>
+
+  <transmission type="SimpleTransmission">
+    <joint name="joint_right_ankle"/>
+    <actuator name="right_ankle"/>
+  </transmission>
+
+  <frame link="right_foot" name="right_foot" xyz="0 0 0"/>
+
+</robot>
