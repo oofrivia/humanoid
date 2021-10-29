@@ -494,9 +494,9 @@ def gait_optimization(gait = 'walking_trot'):
     contact_force_sol = [result.GetSolution(contact_force[i]) for i in range(num_contacts)]
 
 
-    np.savez('TrajData/Traj.npy', h_sol, myq_sol, myv_sol, 
-        com_sol, comdot_sol, comddot_sol, H_sol, Hdot_sol, 
-        contact_force_sol,)
+    np.savez('TrajData/Traj', h_sol=h_sol, myq_sol=myq_sol, myv_sol=myv_sol, 
+        com_sol=com_sol, comdot_sol=comdot_sol, comddot_sol=comddot_sol, H_sol=H_sol, Hdot_sol=Hdot_sol, 
+        contact_force_sol=contact_force_sol,)
 
 
 

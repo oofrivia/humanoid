@@ -102,6 +102,11 @@
       effort="100"
       velocity="1" />
   </joint>
+  <transmission type="SimpleTransmission">
+    <joint name="joint_hip"/>
+    <actuator name="hip"/>
+  </transmission>
+
   <link
     name="low_leg">
     <inertial>
@@ -160,11 +165,16 @@
       effort="100"
       velocity="1" />
   </joint>
+  <transmission type="SimpleTransmission">
+    <joint name="joint_knee"/>
+    <actuator name="knee"/>
+  </transmission>
+
   <link
     name="heel">
     <inertial>
       <origin
-        xyz="0.0053226 8.8969E-18 -1.5613E-17"
+        xyz="0. 0. 0."
         rpy="0 0 0" />
       <mass
         value="0.2" />
@@ -204,7 +214,7 @@
     name="joint_ankle"
     type="revolute">
     <origin
-      xyz="-0.00532262680792502 0 -0.05"
+      xyz="0. 0. -0.05"
       rpy="0 0 0" />
     <parent
       link="low_leg" />
@@ -218,6 +228,10 @@
       effort="100"
       velocity="1" />
   </joint>
+  <transmission type="SimpleTransmission">
+    <joint name="joint_ankle"/>
+    <actuator name="ankle"/>
+  </transmission>
 
   <frame link="heel" name="frame_toe" xyz="0.03 0 0"/>
   <frame link="heel" name="frame_heel" xyz="-0.03 0 0"/>
