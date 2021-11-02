@@ -176,26 +176,28 @@ def JumpControl():
         v_poly.append(vt)
         t_poly.append(t)
 
-    acc_poly = []
+    ddq_poly = []
     for i in range(len(v_poly)-1):
         acc = (v_poly[i+1]-v_poly[i])/dt
-        acc_poly.append(acc)
+        ddq_poly.append(acc)
+
+
+
 
     t_poly = np.array(t_poly)
     q_poly = np.array(q_poly)
     v_poly = np.array(v_poly)
-    acc_poly = np.array(acc_poly)
-    acc_poly = np.vstack((acc_poly, acc_poly[-1]))
+    ddq_poly = np.array(ddq_poly)
+    ddq_poly = np.vstack((ddq_poly, ddq_poly[-1]))
 
 
 
+    # for i in range(len(ddq_poly)):
 
-
-
-    qv = np.concatenate((q_poly[0], v_poly[0]))
-    # qv = np.concatenate((q0, v0))
+    # qv = np.concatenate((q_poly[0], v_poly[0]))
+    qv = np.concatenate((q0, v0))
     plant.SetPositionsAndVelocities(plant_context, qv)
-    
+
     H = plant.CalcMassMatrixViaInverseDynamics(plant_context)
     C = plant.CalcBiasTerm(plant_context) - plant.CalcGravityGeneralizedForces(plant_context)
     B = plant.MakeActuationMatrix()
@@ -206,19 +208,35 @@ def JumpControl():
     C_f = C[0:v_idx_act]
     C_a = C[v_idx_act:]
     B_a = B[v_idx_act:,:]
-
     B_a_inv = np.linalg.inv(B_a)
-    #Phi_f_T = Phi.T[0:v_idx_act:,:]
-    #Phi_a_T = Phi.T[v_idx_act:,:]
-    q = plant.GetPositions(plant_context)
-    qd = plant.GetVelocities(plant_context)
-    nv = plant.num_velocities()
-    vd_d = np.zeros(nv)
-    tau = B_a_inv.dot(H_a.dot(np.zeros(9)) + C_a - np.zeros(3))
 
-    print('q0 ',q0)
-    print('v0 ',v0)
-    print('C ',C)
+    Jf_WF_toe = plant.CalcJacobianTranslationalVelocity(
+        plant_context, JacobianWrtVariable.kV,
+        foot_frame[0], [0, 0, 0], plant.world_frame(), plant.world_frame()).transpose()
+    Jf_WF_heel = plant.CalcJacobianTranslationalVelocity(
+        plant_context, JacobianWrtVariable.kV,
+        foot_frame[1], [0, 0, 0], plant.world_frame(), plant.world_frame()).transpose()
+    Phi_T = np.hstack((Jf_WF_toe, Jf_WF_heel))
+    Phi_f_T = Phi_T[:v_idx_act,:]
+    Phi_a_T = Phi_T[v_idx_act:,:]
+
+
+    stand_force = np.array([0,0,98.1/2, 0,0,98.1/2])
+    contact_force = contact_force_sol[:,:,5].reshape(1,6).squeeze()
+    count = t_sol[5]/dt
+    print('count: \n ',count)
+
+    ddq = ddq_poly[int(count)]
+
+    print('contact_force: \n ',contact_force)
+    print('ddq: \n ',ddq)
+
+
+    tau = B_a_inv.dot(H_a.dot(ddq) + C_a - Phi_a_T.dot(contact_force))
+
+    print('H*ddq + C ', H.dot(ddq) + C)
+    print('B*tau + Phi*lambda ', B.dot(tau) + Phi_T.dot(contact_force))
+
     print('tau ',tau)
 
 
@@ -241,42 +259,45 @@ def JumpControl():
     # print(type(t_poly))
     # print(type(v_poly))
     # print(len(v_poly))
-    # print(len(acc_poly))
+    # print(len(ddq_poly))
 
 
 
-    # import matplotlib.pyplot as plt
-    # plt.ion()
-    # ax1 = plt.subplot(221)
-    # plt.plot(t_poly , 10*q_poly[:,6] )
-    # plt.plot(t_poly , v_poly[:,6])
-    # plt.plot(t_poly , 0.1*acc_poly[:,6])
-    # plt.legend(['pos', 'vel', 'acc'])
-    # ax1.set_title('Torso z')
+    import matplotlib.pyplot as plt
+    plt.ion()
+    ax1 = plt.subplot(221)
+    index = 0
+    plt.plot(t_poly , 10*q_poly[:,index] )
+    plt.plot(t_poly , v_poly[:,index])
+    plt.plot(t_poly , 0.1*ddq_poly[:,index])
+    plt.legend(['pos', 'vel', 'acc'])
+    ax1.set_title('Torso z')
 
-    # ax2 = plt.subplot(222)
-    # plt.plot(t_poly , 10*q_poly[:,7] )
-    # plt.plot(t_poly , v_poly[:,7])
-    # plt.plot(t_poly , 0.1*acc_poly[:,7])
-    # plt.legend(['pos', 'vel', 'acc'])
-    # ax2.set_title('hip')
+    ax2 = plt.subplot(222)
+    index = 1
+    plt.plot(t_poly , 10*q_poly[:,index] )
+    plt.plot(t_poly , 10*v_poly[:,index])
+    plt.plot(t_poly , 0.01*ddq_poly[:,index])
+    plt.legend(['pos', 'vel', 'acc'])
+    ax2.set_title('hip')
 
-    # ax3 = plt.subplot(223)
-    # plt.plot(t_poly , 10*q_poly[:,8] )
-    # plt.plot(t_poly , v_poly[:,8])
-    # plt.plot(t_poly , 0.1*acc_poly[:,8])
-    # plt.legend(['pos', 'vel', 'acc'])
-    # ax3.set_title('knee')
+    ax3 = plt.subplot(223)
+    index = 2
+    plt.plot(t_poly , 10*q_poly[:,index] )
+    plt.plot(t_poly , v_poly[:,index])
+    plt.plot(t_poly , 0.1*ddq_poly[:,index])
+    plt.legend(['pos', 'vel', 'acc'])
+    ax3.set_title('knee')
 
-    # ax4 = plt.subplot(224)
-    # plt.plot(t_poly , 10*q_poly[:,8] )
-    # plt.plot(t_poly , v_poly[:,8])
-    # plt.plot(t_poly , 0.1*acc_poly[:,8])
-    # plt.legend(['pos', 'vel', 'acc'])
-    # ax4.set_title('ankle')
-    # plt.ioff()
+    ax4 = plt.subplot(224)
+    plt.plot(t_poly , 10*q_poly[:,8] )
+    plt.plot(t_poly , v_poly[:,8])
+    plt.plot(t_poly , 0.1*ddq_poly[:,8])
+    plt.legend(['pos', 'vel', 'acc'])
+    ax4.set_title('ankle')
+    plt.ioff()
 
-    # plt.show()
+    plt.show()
 
 
 
