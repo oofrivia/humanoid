@@ -8,7 +8,8 @@ from pydrake.all import (
     MultibodyPlant, JointIndex, RotationMatrix, PiecewisePolynomial, JacobianWrtVariable,
     MathematicalProgram, Solve, eq, AutoDiffXd, autoDiffToGradientMatrix, SnoptSolver,
     initializeAutoDiffGivenGradientMatrix, autoDiffToValueMatrix, autoDiffToGradientMatrix,
-    PiecewiseQuaternionSlerp, AddUnitQuaternionConstraintOnPlant, PositionConstraint, OrientationConstraint
+    PiecewiseQuaternionSlerp, AddUnitQuaternionConstraintOnPlant, PositionConstraint, OrientationConstraint,
+    RotationMatrix, RollPitchYaw
 )
 from pydrake.common.eigen_geometry import Quaternion
 
@@ -152,26 +153,47 @@ def JumpControl():
     q_sol = PiecewisePolynomial.CubicWithContinuousSecondDerivatives(t_sol, myq_sol, False)
 
     Q_sol = []
+    TorsoRot_sol = []
     for i in range(N):
         Q = Quaternion(myq_sol[:4,i])
         Q_sol.append(Q)
+
+        torso = RollPitchYaw(Q).vector()
+        TorsoRot_sol.append(torso)
+
     Q_slerp = PiecewiseQuaternionSlerp(t_sol.tolist(), Q_sol)
 
+    TorsoRot_sol = np.array(TorsoRot_sol).transpose()
+    TorsoRotPoly_sol = PiecewisePolynomial.CubicWithContinuousSecondDerivatives(t_sol, TorsoRot_sol, False)
 
+    # qEuler_sol = np.delete(q_sol, np.s_[0:4])
+    # qEuler_sol = np.hstack((TorsoRotPoly_sol, qEuler_sol))
+    # print(type(q_sol))
+    # print(type(qEuler_sol))
+    # print(qEuler_sol.shape)
+    # print(TorsoRotPoly_sol.shape)
+    # print(q_sol.shape)
 
     q_poly = []
     v_poly = []
     t_poly = []
+    TRot_poly = []
+
     for t in (np.arange(0, t_sol[-1], dt)):
         qt_minus = q_sol.value(t)
         qt_plus = q_sol.value(t+dt)
         q_poly.append(qt_minus.squeeze().transpose())
 
+        angular_minus = TorsoRotPoly_sol.value(t)
+        angular_plus = TorsoRotPoly_sol.value(t+dt)
+        TRot_poly.append(angular_minus.squeeze().transpose())
+
+        angular_vel = (angular_plus-angular_minus)/dt
+        angular_vel = angular_vel.squeeze().transpose()
         vt = (qt_plus-qt_minus)/dt
         vt = vt.squeeze().transpose()
-        angularVel = Q_slerp.angular_velocity(t)
-        vt = np.delete(vt, [0,1,2,3])
-        vt = np.hstack((angularVel, vt))
+        vt = np.delete(vt, np.s_[0:4])
+        vt = np.hstack((angular_vel, vt))
 
         v_poly.append(vt)
         t_poly.append(t)
@@ -186,13 +208,13 @@ def JumpControl():
 
     t_poly = np.array(t_poly)
     q_poly = np.array(q_poly)
+    TRot_poly = np.array(TRot_poly)
     v_poly = np.array(v_poly)
     ddq_poly = np.array(ddq_poly)
     ddq_poly = np.vstack((ddq_poly, ddq_poly[-1]))
 
 
 
-    # for i in range(len(ddq_poly)):
 
     # qv = np.concatenate((q_poly[0], v_poly[0]))
     qv = np.concatenate((q0, v0))
@@ -220,22 +242,31 @@ def JumpControl():
     Phi_f_T = Phi_T[:v_idx_act,:]
     Phi_a_T = Phi_T[v_idx_act:,:]
 
+    print(Jf_WF_toe.shape)
+    print(Jf_WF_toe)
+    print(Jf_WF_heel.shape)
+    print(Jf_WF_heel)
+
+
 
     stand_force = np.array([0,0,98.1/2, 0,0,98.1/2])
-    contact_force = contact_force_sol[:,:,5].reshape(1,6).squeeze()
-    count = t_sol[5]/dt
-    print('count: \n ',count)
+    knotpoint = 4
 
+    contact_force = 98.1*contact_force_sol[:,:,knotpoint].reshape(1,6).squeeze()
+    count = t_sol[knotpoint+1]/dt
     ddq = ddq_poly[int(count)]
 
+    print('t_sol[5]: \n ',t_sol[5])
+    print('count: \n ',count)
     print('contact_force: \n ',contact_force)
     print('ddq: \n ',ddq)
 
 
+    # tau = B_a_inv.dot(H_a.dot(np.array([0]*9)) + C_a - Phi_a_T.dot(stand_force))
     tau = B_a_inv.dot(H_a.dot(ddq) + C_a - Phi_a_T.dot(contact_force))
 
-    print('H*ddq + C ', H.dot(ddq) + C)
-    print('B*tau + Phi*lambda ', B.dot(tau) + Phi_T.dot(contact_force))
+    print('H*ddq + C: \n', H.dot(ddq) + C)
+    print('B*tau + Phi*lambda: \n', B.dot(tau) + Phi_T.dot(contact_force))
 
     print('tau ',tau)
 
@@ -266,33 +297,33 @@ def JumpControl():
     import matplotlib.pyplot as plt
     plt.ion()
     ax1 = plt.subplot(221)
-    index = 0
-    plt.plot(t_poly , 10*q_poly[:,index] )
+    index = 3
+    plt.plot(t_poly , 10*q_poly[:,index+1] )
     plt.plot(t_poly , v_poly[:,index])
     plt.plot(t_poly , 0.1*ddq_poly[:,index])
     plt.legend(['pos', 'vel', 'acc'])
     ax1.set_title('Torso z')
 
     ax2 = plt.subplot(222)
-    index = 1
-    plt.plot(t_poly , 10*q_poly[:,index] )
+    index = 4
+    plt.plot(t_poly , 10*q_poly[:,index+1] )
     plt.plot(t_poly , 10*v_poly[:,index])
-    plt.plot(t_poly , 0.01*ddq_poly[:,index])
+    plt.plot(t_poly , 0.1*ddq_poly[:,index])
     plt.legend(['pos', 'vel', 'acc'])
     ax2.set_title('hip')
 
     ax3 = plt.subplot(223)
-    index = 2
-    plt.plot(t_poly , 10*q_poly[:,index] )
+    index = 5
+    plt.plot(t_poly , 10*q_poly[:,index+1] )
     plt.plot(t_poly , v_poly[:,index])
     plt.plot(t_poly , 0.1*ddq_poly[:,index])
     plt.legend(['pos', 'vel', 'acc'])
     ax3.set_title('knee')
 
     ax4 = plt.subplot(224)
-    plt.plot(t_poly , 10*q_poly[:,8] )
-    plt.plot(t_poly , v_poly[:,8])
-    plt.plot(t_poly , 0.1*ddq_poly[:,8])
+    plt.plot(t_poly , 10*q_poly[:,6] )
+    plt.plot(t_poly , v_poly[:,5])
+    plt.plot(t_poly , 0.1*ddq_poly[:,5])
     plt.legend(['pos', 'vel', 'acc'])
     ax4.set_title('ankle')
     plt.ioff()
