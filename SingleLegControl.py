@@ -161,23 +161,16 @@ def JumpControl():
         torso = RollPitchYaw(Q).vector()
         TorsoRot_sol.append(torso)
 
-    Q_slerp = PiecewiseQuaternionSlerp(t_sol.tolist(), Q_sol)
-
     TorsoRot_sol = np.array(TorsoRot_sol).transpose()
     TorsoRotPoly_sol = PiecewisePolynomial.CubicWithContinuousSecondDerivatives(t_sol, TorsoRot_sol, False)
 
-    # qEuler_sol = np.delete(q_sol, np.s_[0:4])
-    # qEuler_sol = np.hstack((TorsoRotPoly_sol, qEuler_sol))
-    # print(type(q_sol))
-    # print(type(qEuler_sol))
-    # print(qEuler_sol.shape)
-    # print(TorsoRotPoly_sol.shape)
-    # print(q_sol.shape)
 
     q_poly = []
     v_poly = []
     t_poly = []
     TRot_poly = []
+    contact_force_poly = []
+    knot = 0
 
     for t in (np.arange(0, t_sol[-1], dt)):
         qt_minus = q_sol.value(t)
@@ -194,15 +187,21 @@ def JumpControl():
         vt = vt.squeeze().transpose()
         vt = np.delete(vt, np.s_[0:4])
         vt = np.hstack((angular_vel, vt))
-
         v_poly.append(vt)
+
+        while t>t_sol[knot+1] :
+          knot = knot+1
+        contact_force = 98.1*contact_force_sol[:,:,knot].reshape(1,6).squeeze()
+        contact_force_poly.append(contact_force)
+
         t_poly.append(t)
+
+
 
     ddq_poly = []
     for i in range(len(v_poly)-1):
         acc = (v_poly[i+1]-v_poly[i])/dt
         ddq_poly.append(acc)
-
 
 
 
@@ -212,85 +211,61 @@ def JumpControl():
     v_poly = np.array(v_poly)
     ddq_poly = np.array(ddq_poly)
     ddq_poly = np.vstack((ddq_poly, ddq_poly[-1]))
+    contact_force_poly = np.array(contact_force_poly)
 
 
 
+    tau_poly = []
+    residual_poly = []
+    for count in range(len(t_poly)):
 
-    # qv = np.concatenate((q_poly[0], v_poly[0]))
-    qv = np.concatenate((q0, v0))
-    plant.SetPositionsAndVelocities(plant_context, qv)
+        # qv = np.concatenate((q_poly[0], v_poly[0]))
+        qv = np.concatenate((q0, v0))
+        plant.SetPositionsAndVelocities(plant_context, qv)
 
-    H = plant.CalcMassMatrixViaInverseDynamics(plant_context)
-    C = plant.CalcBiasTerm(plant_context) - plant.CalcGravityGeneralizedForces(plant_context)
-    B = plant.MakeActuationMatrix()
+        H = plant.CalcMassMatrixViaInverseDynamics(plant_context)
+        C = plant.CalcBiasTerm(plant_context) - plant.CalcGravityGeneralizedForces(plant_context)
+        B = plant.MakeActuationMatrix()
 
-    v_idx_act = 6 # Start index of actuated joints in generalized velocities
-    H_f = H[0:v_idx_act,:]
-    H_a = H[v_idx_act:,:]
-    C_f = C[0:v_idx_act]
-    C_a = C[v_idx_act:]
-    B_a = B[v_idx_act:,:]
-    B_a_inv = np.linalg.inv(B_a)
+        v_idx_act = 6 # Start index of actuated joints in generalized velocities
+        H_f = H[0:v_idx_act,:]
+        H_a = H[v_idx_act:,:]
+        C_f = C[0:v_idx_act]
+        C_a = C[v_idx_act:]
+        B_a = B[v_idx_act:,:]
+        B_a_inv = np.linalg.inv(B_a)
 
-    Jf_WF_toe = plant.CalcJacobianTranslationalVelocity(
-        plant_context, JacobianWrtVariable.kV,
-        foot_frame[0], [0, 0, 0], plant.world_frame(), plant.world_frame()).transpose()
-    Jf_WF_heel = plant.CalcJacobianTranslationalVelocity(
-        plant_context, JacobianWrtVariable.kV,
-        foot_frame[1], [0, 0, 0], plant.world_frame(), plant.world_frame()).transpose()
-    Phi_T = np.hstack((Jf_WF_toe, Jf_WF_heel))
-    Phi_f_T = Phi_T[:v_idx_act,:]
-    Phi_a_T = Phi_T[v_idx_act:,:]
-
-    print(Jf_WF_toe.shape)
-    print(Jf_WF_toe)
-    print(Jf_WF_heel.shape)
-    print(Jf_WF_heel)
+        Jf_WF_toe = plant.CalcJacobianTranslationalVelocity(
+            plant_context, JacobianWrtVariable.kV,
+            foot_frame[0], [0, 0, 0], plant.world_frame(), plant.world_frame()).transpose()
+        Jf_WF_heel = plant.CalcJacobianTranslationalVelocity(
+            plant_context, JacobianWrtVariable.kV,
+            foot_frame[1], [0, 0, 0], plant.world_frame(), plant.world_frame()).transpose()
+        Phi_T = np.hstack((Jf_WF_toe, Jf_WF_heel))
+        Phi_f_T = Phi_T[:v_idx_act,:]
+        Phi_a_T = Phi_T[v_idx_act:,:]
 
 
+        contact_force = contact_force_poly[int(count)]
+        ddq = ddq_poly[int(count)]
+        tau = B_a_inv.dot(H_a.dot(ddq) + C_a - Phi_a_T.dot(contact_force))
+        tau_poly.append(tau)
 
-    stand_force = np.array([0,0,98.1/2, 0,0,98.1/2])
-    knotpoint = 4
+        residual = (H.dot(ddq) + C) - (B.dot(tau) + Phi_T.dot(contact_force))
+        residual_poly.append(residual)
 
-    contact_force = 98.1*contact_force_sol[:,:,knotpoint].reshape(1,6).squeeze()
-    count = t_sol[knotpoint+1]/dt
-    ddq = ddq_poly[int(count)]
+        # print('count: \n ',count)
+        # print('contact_force: \n ',contact_force)
+        # print('ddq: \n ',ddq)
 
-    print('t_sol[5]: \n ',t_sol[5])
-    print('count: \n ',count)
-    print('contact_force: \n ',contact_force)
-    print('ddq: \n ',ddq)
+        # print('H*ddq + C: \n', H.dot(ddq) + C)
+        # print('B*tau + Phi*lambda: \n', B.dot(tau) + Phi_T.dot(contact_force))
 
+        # print('tau ',tau)
 
-    # tau = B_a_inv.dot(H_a.dot(np.array([0]*9)) + C_a - Phi_a_T.dot(stand_force))
-    tau = B_a_inv.dot(H_a.dot(ddq) + C_a - Phi_a_T.dot(contact_force))
+    tau_poly = np.array(tau_poly)
+    residual_poly = np.array(residual_poly)
 
-    print('H*ddq + C: \n', H.dot(ddq) + C)
-    print('B*tau + Phi*lambda: \n', B.dot(tau) + Phi_T.dot(contact_force))
-
-    print('tau ',tau)
-
-
-
-
-
-
-
-
-
-
-
-
-    # print('h_sol lift: ',sum(h_sol[0:LiftKont]))
-    # print('h_sol fly: ',sum(h_sol[LiftKont:TouchKont]))
-    # print('h_sol touch: ',sum(h_sol[TouchKont:-1]))
-
-    # print(h_sol)
-    # print(t_sol)
-    # print(type(t_poly))
-    # print(type(v_poly))
-    # print(len(v_poly))
-    # print(len(ddq_poly))
 
 
 
@@ -312,22 +287,37 @@ def JumpControl():
     plt.legend(['pos', 'vel', 'acc'])
     ax2.set_title('hip')
 
+    # ax3 = plt.subplot(223)
+    # index = 5
+    # plt.plot(t_poly , 10*q_poly[:,index+1] )
+    # plt.plot(t_poly , v_poly[:,index])
+    # plt.plot(t_poly , 0.1*ddq_poly[:,index])
+    # plt.legend(['pos', 'vel', 'acc'])
+    # ax3.set_title('knee')
+
+    # ax4 = plt.subplot(224)
+    # plt.plot(t_poly , contact_force_poly[:,2] )
+    # plt.plot(t_poly , contact_force_poly[:,5] )
+    # plt.legend(['toe', 'heel'])
+    # ax4.set_title('ankle')
+
     ax3 = plt.subplot(223)
-    index = 5
-    plt.plot(t_poly , 10*q_poly[:,index+1] )
-    plt.plot(t_poly , v_poly[:,index])
-    plt.plot(t_poly , 0.1*ddq_poly[:,index])
-    plt.legend(['pos', 'vel', 'acc'])
-    ax3.set_title('knee')
+    for i in range(3,6):
+        plt.plot(t_poly , residual_poly[:,i], label=i)
+    plt.legend()
+
+    ax3.set_title('residual')
+
 
     ax4 = plt.subplot(224)
-    plt.plot(t_poly , 10*q_poly[:,6] )
-    plt.plot(t_poly , v_poly[:,5])
-    plt.plot(t_poly , 0.1*ddq_poly[:,5])
-    plt.legend(['pos', 'vel', 'acc'])
-    ax4.set_title('ankle')
-    plt.ioff()
+    plt.plot(t_poly , tau_poly[:,0] )
+    plt.plot(t_poly , tau_poly[:,1] )
+    plt.plot(t_poly , tau_poly[:,2] )
+    plt.legend(['hip', 'knee', 'ankle'])
+    ax4.set_title('joint torque')
 
+
+    plt.ioff()
     plt.show()
 
 
